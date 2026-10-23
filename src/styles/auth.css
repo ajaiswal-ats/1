@@ -1,0 +1,25 @@
+/* Supabase portal: sign-in and account states. Built from 2h's tokens and existing patterns (sidebar navy brand band,
+   .btn buttons, .mock notice, crit/warn/info colours); not part of 2h, so not pixel-compared. */
+.auth{min-height:100vh;display:grid;place-items:center;padding:32px 16px;background:var(--bg)}
+.auth-card{width:100%;max-width:400px;background:var(--surface);border:1px solid var(--line);border-radius:3px;overflow:hidden}
+.auth-brand{background:var(--side-bg);padding:14px 20px;border-bottom:1px solid var(--side-line)}
+.auth-brand img{height:28px;display:block}
+.auth-body{padding:20px 22px 22px}
+.auth-kicker{font-family:var(--cond);font-size:11px;font-weight:600;text-transform:uppercase;letter-spacing:.1em;color:var(--ink-3);margin:0 0 4px}
+.auth-body h1{font-size:20px}
+.auth-lede{color:var(--ink-3);font-size:13px;margin:6px 0 0}
+.auth-who{font-size:13px;color:var(--ink-2);margin:8px 0 0}
+.auth-field{display:flex;flex-direction:column;gap:4px;margin-top:14px}
+.auth-field label{font-size:13px;font-weight:500;color:var(--ink-2)}
+.auth-field input{border:1px solid var(--line-2);background:var(--surface);border-radius:3px;padding:8px 10px;font-size:14px}
+.auth-field input:disabled{background:var(--surface-2);color:var(--ink-3)}
+.auth-submit{width:100%;margin-top:18px}
+.auth-submit:disabled{opacity:.7;cursor:progress}
+.auth-msg{font-size:13px;margin:14px 0 0;padding:8px 10px;border-left:3px solid}
+.auth-msg.crit{background:var(--crit-bg);color:var(--crit-fg);border-color:var(--crit-line)}
+.auth-msg.warn{background:var(--warn-bg);color:var(--warn-fg);border-color:var(--warn-rail)}
+.auth-msg.info{background:var(--info-bg);color:var(--info-fg);border-color:var(--info-line)}
+.auth-actions{display:flex;gap:8px;margin-top:18px}
+.auth-foot{font-size:12px;color:var(--ink-3);margin:16px 0 0;padding-top:12px;border-top:1px solid var(--line)}
+.auth-dev{border-left:0;border-top:1px solid var(--warn-line);text-align:center}
+.auth code{font-family:var(--mono);font-size:12.5px}

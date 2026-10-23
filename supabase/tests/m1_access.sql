@@ -253,6 +253,14 @@ begin
   if n = (select count(*) from public.submission_events where source = 'portal') and n = 5 then raise notice 'PASS each portal move records the member who made it, from the same client (5 moves)';
   else raise notice 'FAIL portal moves with a recorded same-client actor: %', n; end if;
 
+  -- Row-level security is on for every application table (set explicitly by the migration, not left to the automatic-RLS helper).
+  select count(*) into n from pg_class c join pg_namespace ns on ns.oid = c.relnamespace
+   where ns.nspname in ('public', 'app_private') and c.relkind in ('r', 'p') and not c.relrowsecurity;
+  if n = 0 and (select count(*) from pg_class c join pg_namespace ns on ns.oid = c.relnamespace
+                where ns.nspname in ('public', 'app_private') and c.relkind in ('r', 'p') and c.relrowsecurity) = 7
+  then raise notice 'PASS row-level security is on for all 7 application tables, and no table in public or app_private is without it';
+  else raise notice 'FAIL % table(s) in public or app_private without row-level security', n; end if;
+
   -- Audit protection (and why rollback drops tables before deleting Auth users): a member who made a move cannot be deleted.
   begin delete from public.client_members where user_id::text = current_setting('t.harbor'); raise notice 'FAIL a member who made moves was deleted';
   exception when foreign_key_violation then raise notice 'PASS a member who made moves cannot be deleted while their events exist'; end;

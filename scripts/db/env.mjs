@@ -37,6 +37,8 @@ export function projectRefs(env) {
   if (env.SUPABASE_DB_URL) {
     const u = new URL(env.SUPABASE_DB_URL), user = decodeURIComponent(u.username);
     refs.db = user.includes(".") ? user.split(".").slice(1).join(".") : u.hostname.match(/^db\.([^.]+)\.supabase\.co$/)?.[1] ?? "(not found in connection string)";
+    /* Session pooler hosts name the region, e.g. aws-0-ap-south-1.pooler.supabase.com (not secret). */
+    refs.region = u.hostname.match(/^aws-\d+-([a-z0-9-]+)\.pooler\.supabase\.com$/)?.[1] ?? "(not a Session pooler host)";
   }
   return refs;
 }

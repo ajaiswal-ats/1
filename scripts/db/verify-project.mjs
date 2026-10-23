@@ -14,6 +14,7 @@ const line = (label, value, good = true) => { if (!good) ok = false; console.log
 
 const refs = projectRefs(env);
 for (const [label, value, good] of assess({}, refs).slice(0, 2)) line(label, value, good);
+console.log(`INFO region in the connection string: ${refs.region} (compare with the dashboard)`);
 
 /* Public API: answers with this project's anon key (no data is read: the root only lists what is exposed). */
 const api = await fetch(`${env.SUPABASE_URL}/rest/v1/`, { headers: keyHeaders(env.SUPABASE_ANON_KEY) }).catch((e) => ({ ok: false, status: String(e) }));

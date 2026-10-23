@@ -15,6 +15,7 @@
     "compare:candidate": "node scripts/compare-candidate.mjs",
     "compare:roles": "node scripts/compare-roles.mjs",
     "check:persistence": "node scripts/check-persistence.mjs",
+    "check:auth": "node scripts/check-auth.mjs",
     "db:verify": "node scripts/db/verify-project.mjs",
     "db:apply": "node scripts/db/apply.mjs",
     "db:rollback": "node scripts/db/rollback.mjs",
@@ -23,16 +24,21 @@
     "db:users": "node scripts/db/users.mjs",
     "db:test:sql": "node scripts/db/test-sql.mjs",
     "db:test:api": "vitest run --config vitest.db.config.mjs",
+    "db:api:read": "node scripts/db/api-read.mjs",
+    "db:api:moves": "node scripts/db/api-moves.mjs",
+    "db:test:offline": "vitest run --config vitest.offline-db.config.mjs",
     "db:check-secrets": "node scripts/db/check-no-secrets.mjs"
   },
   "dependencies": {
     "@fontsource/ibm-plex-mono": "^5.3.0",
     "@fontsource/ibm-plex-sans": "^5.3.0",
     "@fontsource/ibm-plex-sans-condensed": "^5.3.0",
+    "@supabase/supabase-js": "2.117.3",
     "react": "^19.3.1",
     "react-dom": "^19.3.1"
   },
   "devDependencies": {
+    "@electric-sql/pglite": "^0.2.17",
     "@types/node": "^26.6.5",
     "@types/react": "^19.3.0",
     "@types/react-dom": "^19.3.0",

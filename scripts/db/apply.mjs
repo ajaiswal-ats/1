@@ -16,10 +16,10 @@ if (v.status !== 0) { console.error("Stopped: the project is not empty or the se
 
 const run = (label, file) => {
   console.log(label);
-  const r = psql(env, ["--single-transaction", "-f", path.join(ROOT, file)]);
+  const r = psql(env, ["-f", path.join(ROOT, file)]);   /* each file is its own transaction (begin … commit) */
   if (r.status !== 0) { console.error(`Stopped: ${r.stderr.trim()}\nThe transaction was rolled back; nothing from this step was kept.`); process.exit(1); }
 };
-run("2/4 migration (one transaction)", MIGRATION);
+run("2/4 migration (its own transaction)", MIGRATION);
 run("3/4 fictional seed", SEED);
 console.log("4/4 fictional test users and memberships");
 await ensureUsers(env);

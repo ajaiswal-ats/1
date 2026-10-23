@@ -23,6 +23,19 @@ select '${label}', 'absent';
 \\endif`;
 };
 
+/* Supabase's automatic-RLS helper (created by the "enable automatic RLS" project option; reviewed 23 Oct 2026).
+   Recognised only in that reviewed shape: returns event_trigger; exactly one enabled event trigger, on ddl_command_end,
+   covering CREATE TABLE; its definition enables row-level security and contains no grant, revoke, policy, drop or
+   data-changing statement. Any other function in public, or this one in any other shape, is still a STOP. */
+export const AUTO_RLS = `select p.oid, md5(pg_get_functiondef(p.oid)) as fingerprint,
+  (select string_agg(format('%s on %s (%s)', e.evtname, e.evtevent, array_to_string(e.evttags, ', ')), '; ') from pg_event_trigger e where e.evtfoid = p.oid) as triggers,
+  p.prorettype = 'event_trigger'::regtype
+  and (select count(*) from pg_event_trigger e where e.evtfoid = p.oid) = 1
+  and exists (select 1 from pg_event_trigger e where e.evtfoid = p.oid and e.evtevent = 'ddl_command_end' and e.evtenabled <> 'D' and 'CREATE TABLE' = any (e.evttags))
+  and pg_get_functiondef(p.oid) ~* 'enable\\s+row\\s+level\\s+security'
+  and pg_get_functiondef(p.oid) !~* '\\m(grant|revoke|create\\s+policy|drop|delete|insert|update|truncate|copy)\\M' as reviewed_shape
+  from pg_proc p join pg_namespace n on n.oid = p.pronamespace where n.nspname = 'public' and p.proname = 'rls_auto_enable'`;
+
 export const VERIFY_SQL = `
 begin transaction read only;
 \\pset format unaligned
@@ -32,10 +45,13 @@ select 'server', current_database() || ' · ' || split_part(version(), ' on ', 1
 select 'user_schemas', coalesce(string_agg(nspname, ', ' order by nspname), '') from pg_namespace
  where nspname not like 'pg\\_%' and nspname not in ('information_schema','public','auth','storage','extensions','graphql','graphql_public','realtime','_realtime',
   'supabase_functions','supabase_migrations','vault','pgsodium','pgsodium_masks','net','cron','pgbouncer','_analytics','pgtle','topology','tiger','tiger_data');
-select 'public_relations', coalesce(string_agg(c.relname || ' (' || c.relkind || ')', ', ' order by c.relname), '') from pg_class c join pg_namespace n on n.oid = c.relnamespace
+select 'public_relations', coalesce(string_agg(c.relname || ' (' || c.relkind::text || ')', ', ' order by c.relname), '') from pg_class c join pg_namespace n on n.oid = c.relnamespace
  where n.nspname = 'public' and c.relkind in ('r','v','m','p','f','S');
 select 'public_functions', coalesce(string_agg(p.proname, ', ' order by p.proname), '') from pg_proc p join pg_namespace n on n.oid = p.pronamespace
- where n.nspname = 'public' and not exists (select 1 from pg_depend d where d.objid = p.oid and d.deptype = 'e');
+ where n.nspname = 'public' and not exists (select 1 from pg_depend d where d.objid = p.oid and d.deptype = 'e')
+   and p.oid not in (select oid from (${AUTO_RLS}) a where reviewed_shape);
+select 'auto_rls_helper', coalesce((select case when reviewed_shape then 'reviewed · ' || triggers || ' · md5 ' || fingerprint
+                                                else 'unexpected shape · ' || coalesce(triggers, 'no event trigger') end from (${AUTO_RLS}) a), 'absent');
 select 'public_types', count(*)::text from pg_type t join pg_namespace n on n.oid = t.typnamespace where n.nspname = 'public' and t.typtype in ('e','d','c') and t.typrelid = 0;
 select 'policies', count(*)::text from pg_policies where schemaname not in ('auth','storage','realtime','supabase_functions','vault');
 ${GUARDED.map(guarded).join("\n")}
@@ -59,7 +75,9 @@ export function assess(v, refs) {
     ["database", v.server ?? "missing from the results", !!v.server],
     ["application schemas (besides public)", v.user_schemas || "none", v.user_schemas === ""],
     ["tables, views or sequences in public", v.public_relations || "none", v.public_relations === ""],
-    ["functions in public (not from extensions)", v.public_functions || "none", v.public_functions === ""],
+    ["functions in public (not from extensions; the reviewed helper is listed next)", v.public_functions || "none", v.public_functions === ""],
+    ["automatic-RLS helper public.rls_auto_enable", v.auto_rls_helper ?? "missing from the results",
+      v.auto_rls_helper === "absent" || (v.auto_rls_helper ?? "").startsWith("reviewed ")],
     ["custom types in public", v.public_types ?? "missing", v.public_types === "0"],
     ["row-level policies outside Supabase's own schemas", v.policies ?? "missing", v.policies === "0"],
     count("auth users", v.auth_users, "not a standard Supabase project", false),

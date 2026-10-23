@@ -1,13 +1,19 @@
 -- Milestone 1: clients, memberships, roles, people, published/unpublished submissions, versioned stage events,
 -- idempotency keys and one client action (client_move_stage). See docs/backend-plan.md, section 10.
--- Development database with fictional data only. Apply with `npm run db:apply -- --confirm` after approval;
--- it runs in one transaction, so any error leaves the database unchanged. Undo: supabase/rollback/20261023120000_m1_down.sql.
+-- Development database with fictional data only. Run it once, after approval: paste the whole file into the Supabase SQL Editor
+-- (or use `npm run db:apply -- --confirm`). It is one transaction (begin … commit), so any error leaves the database unchanged.
+-- Then run supabase/checks/m1_post_migration.sql. Undo: supabase/rollback/20261023120000_m1_down.sql.
+--
+-- Row-level security is enabled explicitly on every table below. The project's automatic-RLS helper (public.rls_auto_enable)
+-- also enables it on new public tables, but it logs failures without stopping, so this migration does not rely on it.
 --
 -- Access model:
 -- * Clients read only their own company's rows, and only published submissions (and the people and events under them).
 -- * Signed-out users (anon) have no table or function privileges at all.
 -- * Clients never write to tables directly; the only write is client_move_stage, a server-side function.
 -- * Rows are tied to the same client by composite foreign keys, not only by row-level policies.
+
+begin;
 
 -- Private schema: helpers and staff-only tables. It is not exposed through the Data API.
 create schema app_private;
@@ -237,3 +243,5 @@ end $$;
 
 revoke all on function public.client_move_stage(uuid, text, integer, uuid) from public, anon;
 grant execute on function public.client_move_stage(uuid, text, integer, uuid) to authenticated;
+
+commit;

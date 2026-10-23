@@ -25,6 +25,9 @@ temp/
 *.local
 supabase/.env.dev.local
 supabase/.env*.local
+!supabase/.env.test-users.example
+# Local API test run records and their restore SQL (no secrets, but run-specific)
+supabase/runs/
 supabase/.temp/
 .npmrc
 *.pem
