@@ -1,0 +1,96 @@
+/* Hiring progress styles copied verbatim from client-workspace-v1-visual-2h/index.html, in source order.
+   Rules used only by 2h's comparison pages are left out, and identical repeated .fo-* blocks appear once. */
+.card{background:var(--surface);border:1px solid var(--line)}
+.pad{padding:16px 18px}
+.sw{width:8px;height:8px;border-radius:1px;display:inline-block;flex:none}
+.toolbar{display:flex;flex-wrap:wrap;gap:10px;align-items:center;background:var(--surface);border:1px solid var(--line);border-bottom:none;padding:10px 12px;margin:0}
+.sel{border:1px solid var(--line-2);border-radius:3px;padding:6px 8px;background:var(--surface);min-width:230px;font-size:13.5px}
+.ltab-wrap{overflow:auto;max-height:none}
+.tip{position:fixed;pointer-events:none;background:var(--surface);color:var(--ink);border:1px solid var(--line-2);padding:6px 9px;font-size:12.5px;z-index:70;box-shadow:0 6px 18px rgba(0,0,0,.18)}
+.tip b{display:block}
+.rtab{width:100%;border-collapse:collapse;font-size:13px}
+.rtab th,.rtab td{text-align:left;padding:8px 10px;border-bottom:1px solid var(--line);vertical-align:middle}
+.rtab th{font-family:var(--cond);font-size:11.5px;text-transform:uppercase;letter-spacing:.07em;color:var(--ink-3);font-weight:600;background:var(--surface-3)}
+.rtab td.n,.rtab th.n{text-align:right;font-family:var(--mono)}
+.legend{display:flex;flex-wrap:wrap;gap:4px 14px;font-size:12px;color:var(--ink-2);margin:8px 0 2px}
+.legend span{display:inline-flex;gap:6px;align-items:center}
+svg.chart{width:100%;height:auto;display:block;overflow:visible}
+svg.chart text{fill:var(--ink-2);font-family:var(--sans);font-size:12.5px}
+svg.chart .lbl{font-family:var(--mono)}
+svg.chart .gl{stroke:var(--grid);stroke-width:1}
+svg.chart .axis{stroke:var(--line-2)}
+svg.chart rect.hit{fill:transparent}
+svg.chart .lbl{fill:var(--ink);font-weight:600}
+.rbar{border-bottom:1px solid var(--line)}
+.rbar .rscope{margin-left:auto}
+.rempty{border:1px dashed var(--line-2);padding:22px 16px;text-align:center;color:var(--ink-3);font-size:13px;background:var(--surface-2);margin-top:8px}
+.defs{margin:10px 0 0;padding-left:18px;font-size:13px;color:var(--ink-2)}
+.defs li{margin-bottom:6px}
+.fo-h{display:flex;justify-content:space-between;align-items:flex-start;gap:12px;flex-wrap:wrap;margin-bottom:10px}
+.fo-h h2{margin:0}
+.fo-hint{margin:3px 0 0;font-size:13px;color:var(--ink-3)}
+.fo-info{margin-top:12px}
+.fo-info summary{cursor:pointer;font-size:12.5px;font-weight:600;color:var(--link);display:inline-flex;align-items:center;gap:6px;list-style:none}
+.fo-info summary::-webkit-details-marker{display:none}
+.fo-i{display:inline-grid;place-items:center;width:16px;height:16px;border-radius:50%;border:1.5px solid currentColor;font-size:10.5px;font-style:italic;font-family:Georgia,serif;font-weight:700}
+.ts-key{display:flex;flex-wrap:wrap;gap:4px 14px;font-size:12px;color:var(--ink-2);margin:2px 0 6px}
+.ts-key span{display:inline-flex;gap:6px;align-items:center}
+.ts-swf{background:repeating-linear-gradient(135deg,var(--ink-3) 0 3px,transparent 3px 5px)!important;border:1px solid var(--ink-3)}
+.ts-few{display:inline-block;font-size:10.5px;font-weight:600;letter-spacing:.02em;text-transform:uppercase;color:var(--ink-2);border:1px solid var(--line-2);border-radius:3px;padding:0 4px;margin-left:4px;line-height:15px}
+.tsa-v,.tsb-v,.tsc-v{font-variant-numeric:tabular-nums}
+.ts-none{font-size:13px;color:var(--ink-3)}
+/* A */
+.tsa-row{display:grid;grid-template-columns:200px 1fr;gap:14px;align-items:center;padding:8px 0}
+.tsa-name b{display:block;font-size:14px;color:var(--ink);overflow-wrap:anywhere}
+.tsa-name>span{display:block;font-size:12px;color:var(--ink-3);margin-top:1px}
+.tsa-track{display:flex;align-items:flex-start;gap:8px;width:calc(100% - 92px)}
+.tsa-bar{height:26px;border-radius:0 4px 4px 0;flex:none;min-width:3px}
+.tsa-after{display:flex;flex-wrap:wrap;align-items:center;gap:4px 10px;flex:0 1 auto;align-self:flex-start}
+.tsa-after .tsa-v{line-height:26px}
+.tsa-who{flex:none;font-size:12px;font-weight:600;color:var(--ink-2);border:1px solid var(--line-2);border-radius:3px;padding:2px 7px;white-space:nowrap;background:var(--surface)}
+.tsa-ongoing{font-size:12.5px;color:var(--ink-3);margin:8px 0 0}
+.tsa-v{flex:none;font-weight:700;font-size:14px;color:var(--ink);white-space:nowrap}
+/* A */
+.wka{display:grid;grid-template-columns:repeat(6,1fr);gap:0 10px;margin-top:10px;border-bottom:1px solid var(--line-2)}
+.wka-wk{display:flex;flex-direction:column;min-width:0}
+.wka-plot{height:170px;display:flex;align-items:flex-end;justify-content:center;gap:4px}
+.wka-c,.wkb-c{flex:0 1 28px;height:100%;display:flex;flex-direction:column;justify-content:flex-end;align-items:stretch;min-width:12px}
+.wka-c i,.wkb-c i{display:block;border-radius:3px 3px 0 0;min-height:0}
+.wka-v{font-size:13px;font-weight:700;color:var(--ink);text-align:center;line-height:18px;font-variant-numeric:tabular-nums}
+.wka-v.zero{color:var(--ink-3);font-weight:500}
+.wka-lab{font-size:12px;color:var(--ink-2);text-align:center;padding:6px 0 2px;overflow-wrap:normal;word-break:normal}
+.wka-plot{border-bottom:1px solid var(--line-2)}
+.wka{border-bottom:0}
+.wk-trend{margin:2px 0 8px;font-size:14px;color:var(--ink);display:flex;flex-wrap:wrap;gap:2px 10px;align-items:baseline}
+.wk-trend-k{font-size:12px;color:var(--ink-3)}
+.wk-trend-t{font-weight:600}
+.wka-x{font-size:11.5px;color:var(--ink-3);margin-top:4px}
+.wka-lab{overflow:hidden}
+/* fallback when a week label has a word too wide for its column: set the labels vertically */
+.wk-rot .wka-lab,.wk-rot.wkb-labs span{writing-mode:vertical-rl;transform:rotate(180deg);white-space:nowrap;text-align:left;align-self:center;margin:0 auto;padding:6px 0 0;flex:none;overflow:visible}
+.wk-rot.wkb-labs{align-items:flex-start}
+/* 2g Candidates by role: vertical stacked columns */
+.rc{display:grid;grid-template-columns:34px minmax(0,1fr);grid-template-rows:auto auto;column-gap:8px;margin-top:6px}
+.rc-y{grid-column:1;grid-row:1;position:relative;height:200px;margin-top:26px}
+.rc-y span{position:absolute;right:0;transform:translateY(50%);font-size:11.5px;color:var(--ink-3);font-variant-numeric:tabular-nums}
+.rc-plot{grid-column:2;grid-row:1;position:relative;margin-top:26px;border-bottom:1px solid var(--line-2)}
+.rc-grid{position:absolute;left:0;right:0;height:1px;background:var(--grid)}
+.rc-cols{position:absolute;inset:0;display:grid;grid-template-columns:repeat(var(--rc-n),minmax(0,1fr))}
+.rc-col{position:relative;height:100%}
+.rc-stack{position:absolute;bottom:0;left:50%;transform:translateX(-50%);width:min(64px,60%);display:flex;flex-direction:column-reverse;border-radius:4px 4px 0 0;overflow:hidden}
+.rc-seg{display:grid;place-items:center;flex:none;font-weight:700;font-size:12.5px;box-shadow:inset 0 2px 0 var(--surface)}
+.rc-seg:first-child{box-shadow:none}
+.rc-tot{position:absolute;left:0;right:0;text-align:center;font-weight:700;font-size:14px;color:var(--ink);font-variant-numeric:tabular-nums}
+.rc-x{grid-column:2;grid-row:2;display:grid;grid-template-columns:repeat(var(--rc-n),minmax(0,1fr));column-gap:10px;padding-top:8px}
+.rc-lab{text-align:center;min-width:0;overflow-wrap:break-word}
+.rc-lab b{display:block;font-size:13px;color:var(--ink);line-height:1.3}
+.rc-meta{display:block;font-size:11.5px;color:var(--ink-3);margin-top:2px}
+.rc-brk{display:block;font-size:12px;color:var(--ink-2);margin-top:4px;line-height:1.35}
+.rc-legend{margin-top:2px}
+/* 2f Hiring progress layout (desktop) */
+.hp-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:16px;margin-top:16px;align-items:start}
+.hp-wide{grid-column:1/-1}
+#hp-funnel svg.chart{max-width:900px;display:block}
+.hp-ctl{display:flex;align-items:center;gap:14px;flex-wrap:wrap}
+@media (max-width:1279px){.hp-grid{grid-template-columns:minmax(0,1fr)}}
+.period{font-size:12.5px;color:var(--ink-2);border:1px solid var(--line-2);padding:5px 10px;background:var(--surface);font-family:var(--mono)}

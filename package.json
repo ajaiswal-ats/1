@@ -1,0 +1,47 @@
+{
+  "name": "client-portal-v1",
+  "private": true,
+  "version": "0.1.0",
+  "type": "module",
+  "scripts": {
+    "dev": "vite",
+    "build": "tsc -b && vite build",
+    "typecheck": "tsc -b",
+    "test": "vitest run",
+    "preview": "vite preview",
+    "compare:shell": "node scripts/compare-shell.mjs",
+    "compare:progress": "node scripts/compare-progress.mjs",
+    "compare:candidates": "node scripts/compare-candidates.mjs",
+    "compare:candidate": "node scripts/compare-candidate.mjs",
+    "compare:roles": "node scripts/compare-roles.mjs",
+    "check:persistence": "node scripts/check-persistence.mjs",
+    "db:verify": "node scripts/db/verify-project.mjs",
+    "db:apply": "node scripts/db/apply.mjs",
+    "db:rollback": "node scripts/db/rollback.mjs",
+    "db:seed": "node scripts/db/seed.mjs",
+    "db:seed:generate": "node scripts/db/gen-seed.mjs",
+    "db:users": "node scripts/db/users.mjs",
+    "db:test:sql": "node scripts/db/test-sql.mjs",
+    "db:test:api": "vitest run --config vitest.db.config.mjs",
+    "db:check-secrets": "node scripts/db/check-no-secrets.mjs"
+  },
+  "dependencies": {
+    "@fontsource/ibm-plex-mono": "^5.3.0",
+    "@fontsource/ibm-plex-sans": "^5.3.0",
+    "@fontsource/ibm-plex-sans-condensed": "^5.3.0",
+    "react": "^19.3.1",
+    "react-dom": "^19.3.1"
+  },
+  "devDependencies": {
+    "@types/node": "^26.6.5",
+    "@types/react": "^19.3.0",
+    "@types/react-dom": "^19.3.0",
+    "@vitejs/plugin-react": "^6.1.2",
+    "pixelmatch": "^8.0.0",
+    "playwright": "^1.64.1",
+    "pngjs": "^7.0.0",
+    "typescript": "^7.0.2",
+    "vite": "^8.3.5",
+    "vitest": "^4.1.12"
+  }
+}

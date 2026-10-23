@@ -1,0 +1,51 @@
+# Dependencies, builds and generated output
+node_modules/
+dist/
+compare-output/
+coverage/
+playwright-report/
+test-results/
+*.tsbuildinfo
+.vite/
+
+# Temporary files and OS/editor clutter
+tmp/
+temp/
+*.tmp
+*.log
+*.swp
+.DS_Store
+.idea/
+.vscode/
+
+# Credentials and local environment files (safe templates such as .env.example stay included)
+.env
+.env.*
+!.env.example
+*.local
+supabase/.env.dev.local
+supabase/.env*.local
+supabase/.temp/
+.npmrc
+*.pem
+*.key
+*.p12
+*.pfx
+id_rsa*
+id_ed25519*
+
+# Internal reference documents (kept out of the repository)
+docs/reference/Candidate Scoring One-Page Starter.pdf
+docs/reference/*.pdf
+
+# Real candidate documents never belong in this repository. Office and PDF files are excluded everywhere;
+# keep any candidate material outside the repository (fictional test files, if ever needed, get an explicit exception).
+*.pdf
+*.doc
+*.docx
+*.rtf
+*.odt
+# Root-level folders only, so source folders such as src/candidates/ are not affected.
+/private/
+/candidates/
+/resumes/
