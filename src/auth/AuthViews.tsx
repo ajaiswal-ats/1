@@ -4,12 +4,18 @@ import { BriefIcon, ChartIcon, PeopleIcon } from "../components/icons";
 import { useTheme, type Theme } from "../lib/theme";
 import { navFor, type NavKey } from "../lib/route";
 import type { AuthState, ClientInfo, Member, SessionUser } from "./session";
+import { WorkspacePage, NO_MOVES, type MovesProps } from "../workspace/DbViews";
+import { keyOf, type WorkspaceState } from "../workspace/store";
+import { utcToday } from "../workspace/data";
 
 /* The Supabase portal's screens, drawn only from the session state: sign-in, the states around it, and the signed-in shell.
    The shell keeps the reviewed layout (sidebar, top bar, page) but shows no workspace data yet: that is the next milestone.
    No demo component or fictional data is used here. There is no public registration. */
 
 export interface AuthActions { signIn(email: string, password: string): void; signOut(): void; retry(): void }
+/** Workspace data for the signed-in account, and how to retry loading it. */
+export interface WorkspaceProps { state: WorkspaceState; retry(): void; today?: string; moves?: Omit<MovesProps, "account"> & { account?: string }; devRecording?: boolean }
+const NO_WORKSPACE: WorkspaceProps = { state: { status: "idle" }, retry: () => {} };
 
 const DEV_NOTE = "Development · fictional test accounts only · access is by invitation";
 
@@ -57,7 +63,7 @@ export function SignIn({ pending, error, notice, onSignIn }: { pending: boolean;
 
 const SignedInAs = ({ user }: { user: SessionUser }) => <p className="auth-who">Signed in as <b>{user.email || "this account"}</b></p>;
 
-export function AuthView({ state, route, actions }: { state: AuthState; route: string; actions: AuthActions }) {
+export function AuthView({ state, route, actions, workspace = NO_WORKSPACE }: { state: AuthState; route: string; actions: AuthActions; workspace?: WorkspaceProps }) {
   switch (state.status) {
     case "restoring":
       return <Card title="Restoring your session…"><p className="auth-lede" role="status">Checking this browser for a saved sign-in.</p></Card>;
@@ -91,7 +97,7 @@ export function AuthView({ state, route, actions }: { state: AuthState; route: s
         </Card>
       );
     case "ready":
-      return <Workspace route={route} member={state.member} client={state.client} onSignOut={actions.signOut} />;
+      return <Workspace route={route} user={state.user} member={state.member} client={state.client} onSignOut={actions.signOut} workspace={workspace} />;
   }
 }
 
@@ -108,17 +114,19 @@ export function ConfigProblem({ problem }: { problem: string }) {
 export const initials = (name: string) =>
   name.replace(/\([^)]*\)/g, " ").split(/\s+/).filter((w) => /^\p{L}/u.test(w)).slice(0, 2).map((w) => w[0].toUpperCase()).join("");
 
-const TITLES: Record<NavKey, string> = { candidates: "Candidates", roles: "Roles", progress: "Hiring progress" };
-
-function Workspace({ route, member, client, onSignOut }: { route: string; member: Member; client: ClientInfo; onSignOut(): void }) {
+function Workspace({ route, user, member, client, onSignOut, workspace }: { route: string; user: SessionUser; member: Member; client: ClientInfo; onSignOut(): void; workspace: WorkspaceProps }) {
   const current = navFor(route), [theme, setTheme] = useTheme();
+  /* Data is used only if it belongs to this exact user and client; anything else counts as still loading. */
+  const key = keyOf({ userId: user.id, clientId: client.id }), raw = workspace.state;
+  const ws: WorkspaceState = raw.status !== "idle" && raw.key === key ? raw : { status: "loading", key };
+  const note = ws.status === "ready" ? `${ws.ws.roles.length} ${ws.ws.roles.length === 1 ? "role" : "roles"} with Revenue Optics` : "Client workspace";
   const here = (k: NavKey) => (current === k ? { "aria-current": "page" as const } : {});
   const themeButton = (t: Theme, label: string) => <button type="button" aria-pressed={theme === t} onClick={() => setTheme(t)}>{label}</button>;
   return (
     <div className="shell">
       <aside className="side" aria-label="Main navigation">
         <div className="sbrand"><span className="lg"><img alt="Revenue Optics" src={logo} /></span></div>
-        <div className="client"><b>{client.name}</b><span>Client workspace</span></div>
+        <div className="client"><b>{client.name}</b><span>{note}</span></div>
         <nav className="nav" id="nav">
           <a href="#candidates" {...here("candidates")}><PeopleIcon />Candidates</a>
           <a href="#roles" {...here("roles")}><BriefIcon />Roles</a>
@@ -138,13 +146,11 @@ function Workspace({ route, member, client, onSignOut }: { route: string; member
               <button type="button" className="resetbtn" onClick={onSignOut}>Sign out</button>
             </div>
           </div>
-          <div className="mockline proto">Development · signed in with a fictional test account · workspace data is not connected yet</div>
+          <div className="mockline proto">Development · fictional test data from the database · stage changes are saved to the database only: nobody is notified and Manatal is not updated{workspace.devRecording ? " · test-run recording on" : ""}</div>
         </header>
         <main className="page" id="page" tabIndex={-1}>
-          <div className="pagehead"><div><h1>{TITLES[current]}</h1></div></div>
-          <div className="rempty" role="status">
-            {`Workspace data is not connected yet. ${TITLES[current]} for ${client.name} will appear here once the portal reads it from the database.`}
-          </div>
+          <WorkspacePage key={key} route={route} state={ws} onRetry={workspace.retry} today={workspace.today ?? utcToday()}
+            moves={workspace.moves ? { ...workspace.moves, account: key } : NO_MOVES} />
         </main>
       </div>
     </div>

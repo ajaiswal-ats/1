@@ -4,13 +4,15 @@
    other outside request fails the check. Screenshots go to compare-output/auth/.
    Usage: npm run check:auth (the demo dev server on 5173 is not needed and is not affected) */
 import fs from "node:fs";
+import os from "node:os";
 import path from "node:path";
 import { chromium } from "playwright";
 import { createServer } from "vite";
 import { OUT, ROOT, reporter } from "./lib/compare.mjs";
 
 const REF = "offlinetestproject00", HOST = `${REF}.supabase.co`, PORT = 5174, APP = `http://127.0.0.1:${PORT}/`;
-Object.assign(process.env, { VITE_PORTAL_MODE: "supabase", VITE_SUPABASE_URL: `https://${HOST}`, VITE_SUPABASE_ANON_KEY: "sb_publishable_offline_check_only" });
+const RECORD_DIR = fs.mkdtempSync(path.join(os.tmpdir(), "check-auth-ui-moves-"));   /* the dev test-run recorder writes here, not to supabase/runs */
+Object.assign(process.env, { VITE_DEV_RECORD_MOVES: "true", DEV_MOVE_RECORD_DIR: RECORD_DIR, VITE_PORTAL_MODE: "supabase", VITE_SUPABASE_URL: `https://${HOST}`, VITE_SUPABASE_ANON_KEY: "sb_publishable_offline_check_only" });
 const DIR = path.join(OUT, "auth");
 fs.mkdirSync(DIR, { recursive: true });
 
@@ -22,6 +24,50 @@ const USERS = {
   "broken@example.com": { id: "44444444-4444-4444-8444-444444444444", member: { id: "m4", client_id: "c4", display_name: "Bo Broken (test)", job_title: "" }, client: { id: "c4", name: "Recovered Test Client" }, failFirst: true },
 };
 const PASSWORD = "offline-check-password";
+/* Workspace rows of the made-up clients (as row-level security would return them for that client's member). */
+const row = (client_id, o) => ({ client_id, ...o });
+const ago = (n) => new Date(Date.now() - n * 86400000).toISOString().slice(0, 10);   /* UTC dates relative to today */
+const WORKSPACES = {
+  c1: {
+    roles: [row("c1", { id: "r11", title: "Field Technician", location: "Reno, NV", status: "Open", opened_on: "2026-10-01", recruiter_name: "Alex Kim" }),
+            row("c1", { id: "r12", title: "Dispatch Planner", location: "", status: "On hold", opened_on: "2026-09-15", recruiter_name: "" })],
+    people: [row("c1", { id: "p11", name: "Riley Offline", headline: "Technician · Example Co", location: "Reno, NV" }), row("c1", { id: "p12", name: "Casey Offline", headline: "", location: "" }),
+             row("c1", { id: "p13", name: "Jordan Offline", headline: "Coordinator", location: "" })],
+    submissions: [row("c1", { id: "5a1a0000-0000-4000-8000-000000000011", role_id: "r11", person_id: "p11", stage: "Interview", shared_on: ago(5), publication: "published", version: 1 }),
+                  row("c1", { id: "5a1a0000-0000-4000-8000-000000000012", role_id: "r12", person_id: "p11", stage: "To review", shared_on: ago(3), publication: "published", version: 1 }),
+                  row("c1", { id: "5a1a0000-0000-4000-8000-000000000013", role_id: "r11", person_id: "p12", stage: "Declined", shared_on: ago(20), publication: "published", version: 1 }),
+                  row("c1", { id: "5a1a0000-0000-4000-8000-000000000014", role_id: "r11", person_id: "p13", stage: "To review", shared_on: ago(30), publication: "published", version: 1 })],
+    submission_events: [row("c1", { submission_id: "5a1a0000-0000-4000-8000-000000000011", kind: "stage_move", to_stage: "Interview", occurred_on: ago(1) })],
+  },
+  c2: {
+    roles: [row("c2", { id: "r21", title: "Second Role Only", location: "Austin, TX", status: "Open", opened_on: "2026-10-03", recruiter_name: "Jamie Scott" })],
+    people: [row("c2", { id: "p21", name: "Sky Second", headline: "Planner", location: "" })],
+    submissions: [row("c2", { id: "5a1a0000-0000-4000-8000-000000000021", role_id: "r21", person_id: "p21", stage: "To review", shared_on: "2026-10-09", publication: "published", version: 1 })],
+    submission_events: [],
+  },
+  c4: { roles: [], people: [], submissions: [], submission_events: [] },
+};
+const FIRST_NAMES_C1 = ["Riley Offline", "Casey Offline", "Field Technician", "Dispatch Planner"];
+const control = { slowClient: null, failWorkspaceOnce: new Set(["c4"]), loseRpcAnswers: 0, holdRpc: null };
+/* client_move_stage, as the made-up server: same rules as the real function (stored result per key, version check,
+   provisional stage rule). `loseRpcAnswers`: process the request, then drop the answer (an uncertain outcome). */
+const rpcKeys = new Map(), rpcCalls = [], unrecordedSends = [];
+function moveStage(cid, b) {
+  const ws = WORKSPACES[cid], sub = ws?.submissions.find((x) => x.id === b.p_submission_id);
+  if (!sub) return [404, { code: "PT404", message: "submission_not_found" }];
+  const k = `${cid}:${b.p_submission_id}:${b.p_idempotency_key}`, fp = `${b.p_to_stage}:${b.p_expected_version}`;
+  if (rpcKeys.has(k)) return rpcKeys.get(k).fp === fp ? [200, rpcKeys.get(k).result] : [409, { code: "PT409", message: "idempotency_key_reused" }];
+  if (sub.version !== b.p_expected_version) return [409, { code: "PT409", message: "version_conflict", details: `current version ${sub.version}` }];
+  const role = ws.roles.find((r) => r.id === sub.role_id);
+  if (role.status !== "Open" || ["Offer", "Hired", "Declined"].includes(sub.stage) || !["To review", "Interview", "Offer", "Hired"].includes(b.p_to_stage) || b.p_to_stage === sub.stage)
+    return [403, { code: "PT403", message: "move_not_permitted" }];
+  sub.stage = b.p_to_stage; sub.version += 1;
+  ws.submission_events.push(row(cid, { submission_id: sub.id, kind: "stage_move", to_stage: sub.stage, occurred_on: ago(0) }));
+  const result = { submission_id: sub.id, stage: sub.stage, version: sub.version, event_id: ws.submission_events.length };
+  rpcKeys.set(k, { fp, result });
+  return [200, result];
+}
+const bump = (cid, id, stage) => { const sub = WORKSPACES[cid].submissions.find((x) => x.id === id); sub.stage = stage; sub.version += 1; };
 const DEMO_STRINGS = ["Taylor Brooks", "Maria Alvarez", "Mockup · fictional data", "Inside Sales Leader"];
 
 const { ck, done } = reporter();
@@ -57,13 +103,34 @@ async function handle(route) {
     return json(route, 200, user.member ? [user.member] : []);
   }
   if (u.pathname === "/rest/v1/clients") return json(route, 200, user?.client && u.searchParams.get("id") === `eq.${user.client.id}` ? [user.client] : []);
+  const table = u.pathname.slice("/rest/v1/".length), cid = user?.member?.client_id;
+  if (u.pathname === "/rest/v1/rpc/client_move_stage" && req.method() === "POST") {
+    const b = JSON.parse(req.postData() || "{}");
+    rpcCalls.push(b);
+    /* The development test-run record must already hold this exact request when it reaches the server. */
+    const runFile = fs.readdirSync(RECORD_DIR).find((f) => f.endsWith(".json"));
+    const recorded = runFile && JSON.parse(fs.readFileSync(path.join(RECORD_DIR, runFile), "utf8")).entries.some((e) => e.phase === "sent" && e.key === b.p_idempotency_key && e.submission_id === b.p_submission_id && e.expected_version === b.p_expected_version && e.to_stage === b.p_to_stage);
+    if (!recorded) unrecordedSends.push(b.p_idempotency_key);
+    if (control.holdRpc) await control.holdRpc;
+    if (!cid) return json(route, 403, { code: "PT403", message: "not_a_client_member" });
+    const [status, out] = moveStage(cid, b);
+    if (control.loseRpcAnswers > 0) { control.loseRpcAnswers--; return route.abort("connectionreset"); }
+    return json(route, status, out);
+  }
+  if (table in WORKSPACES.c1) {
+    if (!cid) return json(route, 200, []);
+    if (table === "roles" && control.failWorkspaceOnce.has(cid)) { control.failWorkspaceOnce.delete(cid); return json(route, 500, { message: "Internal error" }); }
+    if (control.slowClient === cid) await new Promise((r) => setTimeout(r, 1500));   /* a slow answer, to test that it is ignored once stale */
+    return json(route, 200, WORKSPACES[cid][table]);
+  }
   return json(route, 404, { message: "not mocked" });
 }
 
 const ctx = await browser.newContext({ viewport: { width: 1440, height: 900 }, deviceScaleFactor: 1 });
 await ctx.route("**/*", handle);
 const errors = [];
-const page = async () => { const pg = await ctx.newPage(); pg.on("pageerror", (e) => errors.push(String(e))); await pg.goto(APP + "#candidates"); return pg; };
+const consoleWarnings = [];
+const page = async () => { const pg = await ctx.newPage(); pg.on("pageerror", (e) => errors.push(String(e))); pg.on("console", (m) => { if (["warning", "error"].includes(m.type())) consoleWarnings.push(m.text()); }); await pg.goto(APP + "#candidates"); return pg; };
 const h1 = (pg) => pg.innerText("h1");
 const waitH1 = (pg, text) => pg.waitForFunction((t) => document.querySelector("h1")?.textContent === t, text, { timeout: 5000 }).then(() => true, () => false);
 const body = (pg) => pg.innerText("body");
@@ -92,17 +159,95 @@ try {
   ck("active member: top bar shows the member's name and title", (await A.innerText(".me .who")).replace(/\s+/g, " ") === "Pat Example (test) Hiring manager");
   ck("active member: the session is saved for restoring", await storedSession(A));
   await noDemo(A, "workspace shell");
+  const waitText = (pg, sel, t) => pg.waitForFunction(([s, x]) => document.querySelector(s)?.textContent?.includes(x), [sel, t], { timeout: 5000 }).then(() => true, () => false);
+  ck("Candidates: the counts come from the database", await waitText(A, ".lede", "4 submissions · 3 people · 2 roles"));
+  ck("Candidates: pipeline cards show database names, headline and the same person's other role",
+    (await A.innerText(".board")).includes("Riley Offline") && (await A.innerText(".board")).includes("Same person · also for Dispatch Planner") && (await A.$$(".ccard")).length === 3);
+  ck("Candidates: nothing invented on cards (no next step, requirements or interview)", (await A.$$(".nextbar, .ccard .meta")).length === 0);
+  ck("Candidates: Waiting on you is disabled and marked not connected", await A.$eval(".fchip.wait", (b) => b.disabled && b.title === "Not connected yet"));
+  ck("sidebar: role count from the database", (await A.innerText(".client span")) === "2 roles with Revenue Optics");
   await shot(A, "workspace"); await shot(A, "workspace", "dark"); await A.evaluate(() => document.documentElement.setAttribute("data-theme", "light"));
+  await A.click("text=List"); await A.waitForSelector(".ltab");
+  ck("Candidates list: stage and shared date from the database; next step, requirements and interview not connected",
+    (await A.innerText(".ltab tbody")).includes("Interview") && (await A.$$eval('.ltab [title="Not connected yet"]', (x) => x.length)) === 12);
+  await shot(A, "candidates-list");
+  await A.evaluate(() => (location.hash = "#roles"));
+  ck("Roles: database roles with status, counts and last 7 days", await waitH1(A, "Roles") && (await A.innerText(".rtab")).includes("Dispatch Planner") && (await A.innerText(".rtab")).includes("1 shared · 1 moved"));
+  await shot(A, "roles");
+  await A.evaluate(() => (location.hash = "#role-r11"));
+  ck("role page: database fields; descriptions and requirements not connected", await waitH1(A, "Field Technician") && (await body(A)).includes("requirements are not connected yet"));
+  await A.evaluate(() => (location.hash = "#c-5a1a0000-0000-4000-8000-000000000011"));
+  ck("candidate page: database fields; decline and feedback disabled", await waitH1(A, "Riley Offline")
+    && (await A.$eval("button.btn-d", (b) => b.disabled)) && (await A.$eval("text=Share interview feedback", (b) => b.disabled)) && (await body(A)).includes("Manatal is not updated"));
+  await shot(A, "candidate");
+
+  /* Stage changes (made-up server). Riley Offline, Field Technician (open role), Interview v1 → Offer [provisional]. */
+  const moveCalls = () => rpcCalls.length;
+  await A.selectOption("#mv", "Offer");
+  await A.click("[data-form=move]");
+  ck("move form: Offer is marked provisional, and nothing claims a notification or Manatal update", (await A.innerText("#moveForm")).includes("Provisional for development testing") && (await A.innerText("#moveForm")).includes("nobody is notified and Manatal is not updated"));
+  await shot(A, "move-form");
+  let n0 = moveCalls();
+  await A.dblclick("#moveForm button[type=submit]");
+  ck("move: success is shown after the server confirms", await waitText(A, ".act", "Stage saved: Offer"));
+  ck("move: a double click sends one request, with the version seen and a new key", moveCalls() - n0 === 1 && rpcCalls.at(-1).p_expected_version === 1 && /^[0-9a-f-]{36}$/.test(rpcCalls.at(-1).p_idempotency_key));
+  await shot(A, "move-saved");
+  ck("move: the page shows the refreshed stage from the database", await waitText(A, ".statusdl", "Offer"));
+  await A.click("text=Done");
+  ck("after Done: no further moves from Offer [provisional rule]", await waitText(A, ".act", "Stage changes from Offer are not available"));
+  await A.evaluate(() => (location.hash = "#candidates"));
+  ck("move: lists and counts are refreshed from the database", await waitText(A, '.col[aria-label="Offer"] .ct', "1"));
+
+  /* Conflict: Jordan Offline (To review v1). The form is opened, then the made-up server changes it (another user). */
+  await A.evaluate(() => (location.hash = "#c-5a1a0000-0000-4000-8000-000000000014")); await waitH1(A, "Jordan Offline");
+  await A.selectOption("#mv", "Interview"); await A.click("[data-form=move]");
+  bump("c1", "5a1a0000-0000-4000-8000-000000000014", "Offer");
+  n0 = moveCalls();
+  await A.click("#moveForm button[type=submit]");
+  ck("conflict: a stale version is reported, not retried against the newer version", await waitText(A, ".act", "changed since you opened the page") && moveCalls() - n0 === 1);
+  await shot(A, "move-conflict");
+  await A.click("text=Review the latest stage");
+  ck("conflict: the latest stage from the database is shown for review", await waitText(A, ".statusdl", "Offer"));
+  bump("c1", "5a1a0000-0000-4000-8000-000000000014", "Interview");     /* the made-up "other user" moves it back, so the next test can move it */
+  await A.reload(); await waitH1(A, "Jordan Offline");
+
+  /* Uncertain: the server saves it but both answers are lost; Check again resolves it with the same request and key. */
+  control.loseRpcAnswers = 2;
+  const eventsBefore = WORKSPACES.c1.submission_events.length;
+  n0 = moveCalls();
+  await A.selectOption("#mv", "To review"); await A.click("[data-form=move]"); await A.click("#moveForm button[type=submit]");
+  ck("no answer: an uncertain outcome, not a failure", await A.waitForFunction(() => document.querySelector(".act")?.textContent?.includes("could not be confirmed"), null, { timeout: 8000 }).then(() => true, () => false));
+  await shot(A, "move-uncertain");
+  await A.click("text=Check again");
+  ck("Check again: the stored result confirms it", await waitText(A, ".act", "Stage saved: To review"));
+  const sent = rpcCalls.slice(n0);
+  ck("uncertain: every attempt was the same request with the same key (3 sends), saved once",
+    sent.length === 3 && new Set(sent.map((x) => JSON.stringify(x))).size === 1 && WORKSPACES.c1.submission_events.length - eventsBefore === 1, `${sent.length} sends`);
+  await A.click("text=Done");
+
+  /* Sign-out while saving: the late answer must not appear for anyone. */
+  let releaseRpc; control.holdRpc = new Promise((r) => { releaseRpc = r; });
+  await A.selectOption("#mv", "Interview"); await A.click("[data-form=move]"); await A.click("#moveForm button[type=submit]");
+  await waitText(A, ".act", "Saving the move");
+  await A.click("text=Sign out"); await waitH1(A, "Sign in");
+  releaseRpc(); control.holdRpc = null; await A.waitForTimeout(500);
+  { const t = await body(A); ck("sign-out while saving: the late answer is ignored", !t.includes("Stage saved") && !t.includes("Jordan Offline")); }
+  await signIn(A, "active@example.com"); await waitClient(A, "Offline Test Client");
+  await A.evaluate(() => (location.hash = "#c-5a1a0000-0000-4000-8000-000000000014")); await waitH1(A, "Jordan Offline");
+  ck("after signing in again: no leftover message, the saved stage is read from the database", !(await body(A)).includes("Stage saved") && await waitText(A, ".statusdl", "Interview"));
+  await A.evaluate(() => (location.hash = "#candidates"));
+  await A.evaluate(() => (location.hash = "#candidates"));
 
   await A.reload();
   ck("reload: the session is restored without signing in again", await waitH1(A, "Candidates") && (await A.innerText(".client b")) === "Offline Test Client");
   await A.evaluate(() => (location.hash = "#progress"));
-  ck("navigation keeps the shell, with no data yet", await waitH1(A, "Hiring progress") && (await A.innerText(".rempty")).startsWith("Workspace data is not connected yet."));
+  ck("Hiring progress: explicitly not connected", await waitH1(A, "Hiring progress") && (await A.innerText(".rempty")).startsWith("Hiring progress is not connected yet."));
 
   const before = supabaseCalls.length;
   await A.click("text=Sign out");
   ck("sign-out: back to the sign-in screen", await waitH1(A, "Sign in"));
   ck("sign-out: workspace and client name are gone", (await A.$(".shell")) === null && !(await body(A)).includes("Offline Test Client"));
+  { const t = await body(A); ck("sign-out: no workspace data left on the page", !FIRST_NAMES_C1.some((x) => t.includes(x)), FIRST_NAMES_C1.filter((x) => t.includes(x)).join(", ")); }
   ck("sign-out: the saved session is removed", await A.waitForFunction((k) => localStorage.getItem(k) === null, `sb-${REF}-auth-token`, { timeout: 5000 }).then(() => true, () => false));
   ck("sign-out: the session is ended with the sign-in service", supabaseCalls.slice(before).some((c) => c.startsWith("POST /auth/v1/logout")));
 
@@ -118,22 +263,46 @@ try {
   await shot(A, "load-error");
   await A.click("text=Try again");
   ck("retry after the failure: the workspace opens", await waitClient(A, "Recovered Test Client"));
+  await A.evaluate(() => (location.hash = "#roles"));
+  ck("workspace data fails to load: an error with retry, and no data", await waitText(A, ".rempty.dberr", "could not be loaded") && (await A.$(".rtab")) === null);
+  await shot(A, "workspace-error");
+  await A.click("text=Try again");
+  ck("retry: an empty workspace shows its empty state", await waitText(A, ".rempty", "No roles yet."));
   await A.click("text=Sign out"); await waitH1(A, "Sign in");
 
-  /* Account change in another tab of the same browser. */
+  /* Account change in another tab of the same browser, while the first account's data is still loading (slow answer). */
+  control.slowClient = "c1";
   await signIn(A, "active@example.com"); await waitClient(A, "Offline Test Client");
+  await A.evaluate((names) => { window.__staleSeen = false; new MutationObserver(() => { if (window.__switched && names.some((n) => document.body.innerText.includes(n))) window.__staleSeen = true; }).observe(document.body, { subtree: true, childList: true, characterData: true }); }, FIRST_NAMES_C1);
   const B = await page();
   ck("second tab: restores the same session", await waitH1(B, "Candidates") && (await B.innerText(".client b")) === "Offline Test Client");
+  await A.evaluate(() => { window.__switched = true; });
   await B.click("text=Sign out"); await waitH1(B, "Sign in");
   ck("other tab signed out: this tab drops the workspace too", await waitH1(A, "Sign in") && !(await body(A)).includes("Offline Test Client"));
   await signIn(B, "second@example.com"); await waitH1(B, "Candidates");
   ck("other tab signed in as someone else: this tab shows only the new account", await waitClient(A, "Second Test Client") && !(await body(A)).includes("Offline Test Client"));
   ck("a member without a job title shows only the name", (await A.innerText(".me .who")).trim() === "Sam Second (test)");
+  await A.evaluate(() => (location.hash = "#candidates"));
+  ck("after the switch: only the new client's candidates", await waitText(A, ".board", "Sky Second"));
+  await A.waitForTimeout(1800);   /* the previous account's slow answers arrive now */
+  { const t = await body(A); ck("the previous account's late answers are ignored", !FIRST_NAMES_C1.some((x) => t.includes(x)) && (await A.evaluate(() => window.__staleSeen)) === false); }
+  control.slowClient = null;
 
   ck("the demo's saved actions are never written in Supabase mode", await A.evaluate(() => localStorage.getItem("ro-portal-demo-actions") === null));
   ck("every Supabase request went to the made-up offline project only", supabaseCalls.length > 0 && external.length === 0, external.join(", "));
-  ck("reads only: no request other than sign-in, sign-out and GET", supabaseCalls.every((c) => /^(GET \/rest\/v1\/|POST \/auth\/v1\/(token|logout))/.test(c)), supabaseCalls.filter((c) => !/^(GET \/rest\/v1\/|POST \/auth\/v1\/(token|logout))/.test(c)).join(", "));
+  {
+    const runFile = fs.readdirSync(RECORD_DIR).find((f) => f.endsWith(".json")), text = runFile ? fs.readFileSync(path.join(RECORD_DIR, runFile), "utf8") : "";
+    const sentKeys = new Set(text ? JSON.parse(text).entries.filter((e) => e.phase === "sent").map((e) => e.key) : []);
+    ck("test-run record: every request was recorded with its exact key before it was sent", rpcCalls.length > 0 && unrecordedSends.length === 0 && rpcCalls.every((b) => sentKeys.has(b.p_idempotency_key)), unrecordedSends.join(", "));
+    ck("test-run record: no password, session token or project key in it", text !== "" && ![PASSWORD, "eyJ", "sb_publishable_", "refresh-"].some((x) => text.includes(x)));
+    ck("test-run record: readable only by its owner", runFile && (fs.statSync(path.join(RECORD_DIR, runFile)).mode & 0o777) === 0o600);
+    ck("the banner says test-run recording is on", (await A.innerText(".mockline")).includes("test-run recording on"));
+  }
+  const allowed = /^(GET \/rest\/v1\/|POST \/auth\/v1\/(token|logout)|POST \/rest\/v1\/rpc\/client_move_stage$)/;
+  ck("writes only through client_move_stage: nothing else besides reads, sign-in and sign-out", supabaseCalls.every((c) => allowed.test(c)), supabaseCalls.filter((c) => !allowed.test(c)).join(", "));
   ck("no page errors", errors.length === 0, errors.join(" | "));
+  ck("one Supabase client per tab (no duplicate GoTrueClient warning)", !consoleWarnings.some((w) => w.includes("Multiple GoTrueClient")), consoleWarnings.filter((w) => w.includes("GoTrueClient")).slice(0, 1).join(""));
+  ck("no other console warnings or errors", consoleWarnings.filter((w) => !w.includes("Multiple GoTrueClient") && !w.includes("Failed to load resource")).length === 0, consoleWarnings.filter((w) => !w.includes("Failed to load resource")).slice(0, 3).join(" | "));
 } finally {
   await browser.close();
   await server.close();

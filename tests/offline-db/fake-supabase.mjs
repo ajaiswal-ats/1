@@ -48,17 +48,21 @@ export async function asUser(db, sub, sql, params = []) {
 function makeFetch(db, ids) {
   const tokens = new Map();
   const jwt = (p) => `eyJhbGciOiJub25lIn0.${Buffer.from(JSON.stringify(p)).toString("base64url")}.offline`;
-  const reply = (status, body) => ({ status, text: async () => (body === undefined ? "" : typeof body === "string" ? body : JSON.stringify(body)) });
+  const reply = (status, body) => new Response(status === 204 || body === undefined ? null : typeof body === "string" ? body : JSON.stringify(body),
+    { status, headers: { "Content-Type": "application/json" } });
   return async (url, init = {}) => {
-    const u = new URL(url), h = init.headers || {}, method = init.method || "GET";
+    const u = new URL(url), hd = new Headers(init.headers || {}), method = (init.method || "GET").toUpperCase();
+    const h = { apikey: hd.get("apikey"), Authorization: hd.get("authorization") || "", "Accept-Profile": hd.get("accept-profile") };
     if (h.apikey !== KEY) return reply(401, { message: "Invalid API key" });
     if (u.pathname === "/auth/v1/token") {
       const { email, password } = JSON.parse(init.body);
       const key = Object.keys(EMAILS).find((k) => EMAILS[k] === email);
       if (!key || PASSWORDS[key] !== password) return reply(400, { error_code: "invalid_credentials" });
-      const access = jwt({ sub: ids[email], role: "authenticated", aud: "authenticated", jti: crypto.randomUUID() });
+      const exp = Math.floor(Date.now() / 1000) + 3600;
+      const access = jwt({ sub: ids[email], role: "authenticated", aud: "authenticated", exp, jti: crypto.randomUUID() });
       tokens.set(access, ids[email]);
-      return reply(200, { access_token: access, refresh_token: crypto.randomUUID(), user: { id: ids[email], email } });
+      return reply(200, { access_token: access, token_type: "bearer", expires_in: 3600, expires_at: exp, refresh_token: crypto.randomUUID(),
+        user: { id: ids[email], email, aud: "authenticated", role: "authenticated", app_metadata: {}, user_metadata: {}, created_at: "2026-10-01T00:00:00Z" } });
     }
     if (u.pathname === "/auth/v1/logout") return reply(204);
     if (!u.pathname.startsWith("/rest/v1/")) return reply(404, {});
@@ -66,14 +70,16 @@ function makeFetch(db, ids) {
     if (bearer && !tokens.has(bearer)) return reply(401, { code: "PGRST301", message: "JWT invalid" });
     const sub = bearer ? tokens.get(bearer) : null;
     const name = u.pathname.slice("/rest/v1/".length);
-    const filters = [...u.searchParams].filter(([k]) => k !== "select").map(([k, v]) => { const m = v.match(/^eq\.(.*)$/); if (!/^[a-z_]+$/.test(k) || !m) throw new Error(`fake: unsupported filter ${k}=${v}`); return [k, m[1]]; });
+    const limit = u.searchParams.get("limit");
+    if (limit !== null && !/^\d+$/.test(limit)) throw new Error("fake: bad limit");
+    const filters = [...u.searchParams].filter(([k]) => k !== "select" && k !== "limit").map(([k, v]) => { const m = v.match(/^eq\.(.*)$/); if (!/^[a-z_]+$/.test(k) || !m) throw new Error(`fake: unsupported filter ${k}=${v}`); return [k, m[1]]; });
     const where = filters.length ? ` where ${filters.map(([k], i) => `${k}::text = $${i + 1}`).join(" and ")}` : "";
     const params = filters.map(([, v]) => v);
     try {
       if (method === "GET") {
         const cols = (u.searchParams.get("select") || "*").split(",");
         if (!cols.every((c) => /^([a-z_]+|\*)$/.test(c))) throw new Error("fake: bad select");
-        const r = await asUser(db, sub, `select coalesce(json_agg(t), '[]')::text as j from (select ${cols.join(", ")} from public.${name}${where}) t`, params);
+        const r = await asUser(db, sub, `select coalesce(json_agg(t), '[]')::text as j from (select ${cols.join(", ")} from public.${name}${where}${limit ? ` limit ${limit}` : ""}) t`, params);
         return reply(200, r.rows[0].j);
       }
       if (method === "POST" && name === "rpc/client_move_stage") {

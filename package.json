@@ -26,6 +26,7 @@
     "db:test:api": "vitest run --config vitest.db.config.mjs",
     "db:api:read": "node scripts/db/api-read.mjs",
     "db:api:moves": "node scripts/db/api-moves.mjs",
+    "db:ui-moves:restore-sql": "node scripts/db/ui-moves-restore.mjs",
     "db:test:offline": "vitest run --config vitest.offline-db.config.mjs",
     "db:check-secrets": "node scripts/db/check-no-secrets.mjs"
   },

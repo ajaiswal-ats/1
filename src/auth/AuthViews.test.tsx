@@ -77,7 +77,7 @@ describe("signed-in workspace shell", () => {
     expect(h).toContain('aria-hidden="true">JD</span>');
     expect(h).toContain('href="#roles" aria-current="page"');
     expect(h).toContain("<h1>Roles</h1>");
-    expect(h).toContain("Workspace data is not connected yet.");
+    expect(h).toContain("Loading workspace data…");   // no data for this account yet
     expect(h).toContain(">Sign out</button>");
   });
   it("leaves out what the database does not provide, rather than filling it in", () => {

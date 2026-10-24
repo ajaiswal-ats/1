@@ -1,0 +1,311 @@
+import { Fragment, useState, type CSSProperties, type ReactNode } from "react";
+import { PinIcon } from "../components/icons";
+import type { Stage } from "../data/fixtures";
+import { STAGES } from "../domain/candidates";
+import { fd } from "../lib/dates";
+import { navFor } from "../lib/route";
+import { Seg, plural, stageColor } from "../progress/shared";
+import { StatusChip } from "../roles/StatusChip";
+import { alsoFor, countByStage, forRole, person, roleFor, roleRow, uniquePeople, type DbRole, type DbSubmission, type Workspace } from "./data";
+import { MOVE_MESSAGES, moveTargets, type MoveState, type MoveTarget } from "./moves";
+import type { WorkspaceState } from "./store";
+
+/* Supabase-mode pages, drawn only from the loaded workspace data with the reviewed markup and classes (2h). They do not use
+   the demo's DataProvider, fixtures or saved demo actions. What the database does not hold yet is marked "not connected"
+   or shown as "—"; it is never filled in. There are no client actions here: stage changes, decline and feedback are off. */
+
+const COLS: Stage[] = [...STAGES, "Declined"];
+const NA = <span className="muted" title="Not connected yet">—</span>;
+const ACTIONS_OFF = "Stage changes are on the candidate page; decline and feedback are not available yet.";
+const initials = (name: string) => name.split(/\s+/).filter(Boolean).map((w) => w[0]).join("").slice(0, 2).toUpperCase();
+const year = (d: string) => d.slice(0, 4);
+
+/** Stage changes for the signed-in account: its key (moves for another account are ignored), the state and the actions. */
+export interface MovesProps { account: string; state: MoveState; move(sub: DbSubmission, to: MoveTarget, seen: { version: number; stage: Stage }): boolean; retry(): void; dismiss(): void }
+export const NO_MOVES: MovesProps = { account: "", state: { status: "idle" }, move: () => false, retry: () => {}, dismiss: () => {} };
+
+export function WorkspacePage({ route, state, onRetry, today, moves = NO_MOVES }: { route: string; state: WorkspaceState; onRetry(): void; today: string; moves?: MovesProps }) {
+  const current = navFor(route);
+  if (route === "progress") return <NotConnected title="Hiring progress" text="Hiring progress is not connected yet. Its reports need search records that are not in the database yet." />;
+  if (state.status === "idle" || state.status === "loading") return <Notice title={titleFor(route)} role="status">Loading workspace data…</Notice>;
+  if (state.status === "error") {
+    return (
+      <Notice title={titleFor(route)} role="alert" crit>
+        <span>Workspace data could not be loaded. Nothing is shown in its place.</span>{" "}
+        <button type="button" className="btn btn-s btn-sm" onClick={onRetry}>Try again</button>
+      </Notice>
+    );
+  }
+  const ws = state.ws;
+  if (route.startsWith("c-")) return <CandidateDetail ws={ws} id={route.slice(2)} moves={moves} />;
+  if (route.startsWith("role-")) return <RoleDetail ws={ws} id={route.slice(5)} today={today} />;
+  if (current === "roles") return <RolesList ws={ws} today={today} />;
+  return <CandidatesList ws={ws} />;
+}
+
+const titleFor = (route: string) => (route.startsWith("c-") ? "Candidate" : route.startsWith("role-") ? "Role" : { candidates: "Candidates", roles: "Roles", progress: "Hiring progress" }[navFor(route)]);
+
+function Notice({ title, children, role, crit }: { title: string; children: ReactNode; role: "status" | "alert"; crit?: boolean }) {
+  return (
+    <>
+      <div className="pagehead"><div><h1>{title}</h1></div></div>
+      <div className={`rempty${crit ? " dberr" : ""}`} role={role}>{children}</div>
+    </>
+  );
+}
+
+const NotConnected = ({ title, text }: { title: string; text: string }) => (
+  <>
+    <div className="pagehead"><div><h1>{title}</h1></div></div>
+    <div className="rempty" role="status">{text}</div>
+  </>
+);
+
+/* ---- Roles --------------------------------------------------------------------------------------------------------- */
+
+function RolesList({ ws, today }: { ws: Workspace; today: string }) {
+  return (
+    <>
+      <div className="pagehead"><div><h1>Roles</h1><p className="lede">Roles Revenue Optics is filling for you.</p></div></div>
+      <section className="card pad">
+        {ws.roles.length === 0 ? <div className="rempty">No roles yet.</div> : (
+          <div className="ltab-wrap">
+            <table className="rtab">
+              <thead><tr><th>Role</th><th>Status</th><th className="n">Shared</th>
+                {COLS.map((s) => <th key={s} className="n stc"><i className="sw" style={{ background: stageColor(s) }} />{s}</th>)}
+                <th className="n">Waiting on you</th><th className="n">Last 7 days</th></tr></thead>
+              <tbody>
+                {ws.roles.map((r) => {
+                  const x = roleRow(ws, r, today);
+                  return (
+                    <tr key={r.id}>
+                      <td><a className="rname" href={`#role-${r.id}`}>{r.title}</a>{r.location && <div className="xs muted">{r.location}</div>}</td>
+                      <td><StatusChip status={r.status} /></td>
+                      <td className="n shared">{x.shared}</td>
+                      {x.byStage.map((n, i) => <td key={i} className={`n stn${n ? "" : " zero"}`}>{n}</td>)}
+                      <td className="n">{NA}</td>
+                      <td className="n small">{`${x.shared7} shared · ${x.moved7} moved`}</td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          </div>
+        )}
+        <p className="xs muted dbnote">"Waiting on you" is not connected yet.</p>
+      </section>
+    </>
+  );
+}
+
+function RoleDetail({ ws, id, today }: { ws: Workspace; id: string; today: string }) {
+  const r = ws.roles.find((x) => x.id === id);
+  if (!r) return <><nav className="crumb"><a href="#roles">← Roles</a></nav><p>Role not found.</p></>;
+  const x = roleRow(ws, r, today);
+  return (
+    <>
+      <nav className="crumb"><a href="#roles">← Roles</a></nav>
+      <div className="card pad">
+        <div style={{ display: "flex", gap: 12, alignItems: "center", flexWrap: "wrap" }}><h1>{r.title}</h1><StatusChip status={r.status} /></div>
+        <dl className="rmeta">
+          {r.location && <div><dt>Location</dt><dd>{r.location}</dd></div>}
+          <div><dt>Opened</dt><dd>{`${fd(r.openedOn)} ${year(r.openedOn)}`}</dd></div>
+          {r.recruiterName && <div><dt>Recruiter</dt><dd>{`${r.recruiterName}, Revenue Optics`}</dd></div>}
+        </dl>
+        <div className="funnel">
+          <div className="ftile total"><div className="n num">{x.shared}</div><div className="l">Shared with you</div></div>
+          {COLS.map((s, i) => <div key={s} className="ftile" style={{ boxShadow: `inset 0 3px 0 ${stageColor(s)}` }}><div className="n num">{x.byStage[i]}</div><div className="l">{s}</div></div>)}
+        </div>
+        <div className="rempty">The role summary, what the role involves, the job description and the requirements are not connected yet.</div>
+      </div>
+      <section className="card pad" style={{ marginTop: 18 }}>
+        <div className="sec-h"><h2>Candidates for this role</h2></div>
+        <SubmissionTable ws={ws} list={forRole(ws, r.id)} noRole />
+      </section>
+    </>
+  );
+}
+
+/* ---- Candidates ---------------------------------------------------------------------------------------------------- */
+
+function CandidatesList({ ws }: { ws: Workspace }) {
+  /* Page controls are kept for this visit only (not saved in the browser), and reset for each account. */
+  const [view, setView] = useState<"pipeline" | "list">("pipeline"), [role, setRole] = useState<string>("all"), [showDeclined, setShowDeclined] = useState(false);
+  const choice = role === "all" || ws.roles.some((r) => r.id === role) ? role : "all";
+  const list = forRole(ws, choice), n = uniquePeople(list);
+  const scope = choice === "all" ? `${ws.roles.length} ${plural(ws.roles.length, "role")}` : ws.roles.find((r) => r.id === choice)!.title;
+  return (
+    <>
+      <div className="pagehead">
+        <div><h1>Candidates</h1><p className="lede">{`${list.length} ${plural(list.length, "submission")} · ${n} ${n === 1 ? "person" : "people"} · ${scope}`}</p></div>
+        <Seg label="View" value={view} options={[["pipeline", "Pipeline"], ["list", "List"]]} onChange={setView} />
+      </div>
+      <div className="toolbar">
+        <label className="sr" htmlFor="roleSel">Role</label>
+        <select id="roleSel" className="sel" value={choice} onChange={(e) => setRole(e.target.value)}>
+          <option value="all">All roles</option>
+          {ws.roles.map((r) => <option key={r.id} value={r.id}>{r.title + (r.status !== "Open" ? ` (${r.status.toLowerCase()})` : "")}</option>)}
+        </select>
+        <button type="button" className="fchip" aria-pressed="true">All candidates</button>
+        <button type="button" className="fchip wait" disabled aria-disabled="true" title="Not connected yet">Waiting on you <span className="ct">—</span></button>
+      </div>
+      <p className="xs muted dbnote">Next steps, requirement evidence and interviews are not connected yet. {ACTIONS_OFF}</p>
+      {view === "pipeline" ? (
+        <>
+          <div className={`board ${showDeclined ? "with-dec" : ""}`}>
+            {(showDeclined ? COLS : STAGES).map((s) => {
+              const cs = list.filter((c) => c.stage === s);
+              return (
+                <section key={s} className="col" aria-label={s} style={{ "--c": stageColor(s) } as CSSProperties}>
+                  <div className="col-h"><h2>{s}</h2><span className="ct">{cs.length}</span></div>
+                  {cs.length ? cs.map((c) => <Card key={c.id} ws={ws} c={c} showRole={choice === "all"} />) : <div className="col-empty">No candidates here</div>}
+                </section>
+              );
+            })}
+          </div>
+          <p className="small" style={{ marginTop: 12 }}>
+            <button type="button" className="btn-link" id="decTgl" onClick={() => setShowDeclined(!showDeclined)}>
+              {showDeclined ? "Hide declined" : `Show declined (${countByStage(list, ["Declined"])[0]})`}
+            </button>
+          </p>
+        </>
+      ) : <SubmissionTable ws={ws} list={list} />}
+    </>
+  );
+}
+
+function Card({ ws, c, showRole }: { ws: Workspace; c: DbSubmission; showRole: boolean }) {
+  const p = person(ws, c), also = alsoFor(ws, c);
+  return (
+    <a className="ccard" href={`#c-${c.id}`}>
+      <span className="av" aria-hidden="true">{initials(p.name)}</span>
+      <div className="b">
+        <div className="nm">{p.name}</div>
+        {p.headline && <div className="hd">{p.headline}</div>}
+        {showRole && <div className="rl">{roleFor(ws, c).title}</div>}
+        {also.length > 0 && <div className="also2">{`Same person · also for ${also.join(", ")}`}</div>}
+      </div>
+    </a>
+  );
+}
+
+function SubmissionTable({ ws, list, noRole = false }: { ws: Workspace; list: DbSubmission[]; noRole?: boolean }) {
+  return (
+    <div className={noRole ? "ltab-wrap" : "card ltab-wrap"}>
+      <table className="ltab">
+        <thead><tr><th>Candidate</th>{!noRole && <th>Role</th>}<th>Stage</th><th>Next step</th><th>Requirements</th><th>Interview</th><th>Shared</th></tr></thead>
+        <tbody>
+          {list.length ? list.map((c) => {
+            const p = person(ws, c), also = alsoFor(ws, c);
+            return (
+              <tr key={c.id}>
+                <td><a className="nm" href={`#c-${c.id}`}>{p.name}</a>{p.headline && <div className="xs muted">{p.headline}</div>}</td>
+                {!noRole && <td>{roleFor(ws, c).title}{also.length > 0 && <div className="alsoline">{`Same person · also for ${also.join(", ")}`}</div>}</td>}
+                <td><span className="chip c-stage"><i className="sw" style={{ background: stageColor(c.stage) }} />{c.stage}</span></td>
+                <td>{NA}</td>
+                <td className="small">{NA}</td>
+                <td>{NA}</td>
+                <td className="small num">{fd(c.sharedOn)}</td>
+              </tr>
+            );
+          }) : <tr><td colSpan={noRole ? 6 : 7} className="muted">No candidates have been shared yet.</td></tr>}
+        </tbody>
+      </table>
+    </div>
+  );
+}
+
+function CandidateDetail({ ws, id, moves }: { ws: Workspace; id: string; moves: MovesProps }) {
+  const c = ws.subs.find((s) => s.id === id);
+  if (!c) return <><nav className="crumb"><a href="#candidates">← Back to candidates</a></nav><p>Candidate not found. <a href="#candidates">Back to Candidates</a></p></>;
+  const p = person(ws, c), r = roleFor(ws, c), others = ws.subs.filter((x) => x.personId === c.personId && x.id !== c.id), si = STAGES.indexOf(c.stage);
+  return (
+    <>
+      <nav className="crumb" aria-label="Breadcrumb"><a href="#candidates">← Back to candidates</a><span className="muted">/</span><a href={`#role-${r.id}`}>{r.title}</a></nav>
+      <div className="cd">
+        <div className="card" style={{ minWidth: 0 }}>
+          <div className="chead">
+            <div className="chead-top"><span className="av">{initials(p.name)}</span><div style={{ minWidth: 0 }}><h1>{p.name}</h1>
+              <div className="for">for <a href={`#role-${r.id}`}>{r.title}</a></div>
+              <div className="facts">{p.headline && <span>{p.headline}</span>}{p.location && <span><PinIcon />{` ${p.location}`}</span>}<span>{`Shared ${fd(c.sharedOn)}`}</span></div></div></div>
+            {others.length > 0 && <div className="also">Also shared for {others.map((o, i) => <Fragment key={o.id}>{i > 0 && ", "}<a href={`#c-${o.id}`}>{roleFor(ws, o).title}</a>{` (${o.stage})`}</Fragment>)}</div>}
+            {c.stage === "Declined"
+              ? <p className="small" style={{ margin: "14px 0 0" }}><span className="chip c-mute">Declined</span></p>
+              : <ol className="steps" aria-label="Stage">{STAGES.map((s, i) => <li key={s} className={i < si ? "done" : i === si ? "cur" : ""} aria-current={i === si ? "step" : undefined}>{s}</li>)}</ol>}
+          </div>
+          <div className="tabp"><div className="rempty">The summary, requirement evidence, screening interview, resume, notes and history are not connected yet.</div></div>
+        </div>
+        <aside className="card act" aria-label="Next step"><div className="pad">
+          <h2>Next step</h2>
+          <dl className="statusdl"><dt>Stage</dt><dd>{c.stage}</dd>{r.recruiterName && <><dt>Recruiter</dt><dd>{`${r.recruiterName}, Revenue Optics`}</dd></>}</dl>
+          <MovePanel key={c.id} sub={c} role={r} moves={moves} />
+          <div className="abtns" style={{ marginTop: 12 }}>
+            <button type="button" className="btn btn-d btn-off" disabled title="Not available yet">Decline</button>
+            <button type="button" className="btn btn-s btn-off" disabled title="Not available yet">Share interview feedback</button>
+          </div>
+          <p className="small muted">Decline and interview feedback are not available yet.</p>
+          <p className="mock">{NOT_NOTIFIED}</p>
+        </div></aside>
+      </div>
+    </>
+  );
+}
+
+const NOT_NOTIFIED = "Development: a stage change is saved in the portal database only. Your recruiter is not notified automatically, and Manatal is not updated. Neither is connected yet.";
+
+/** The stage-change part of the Next step panel: choose, confirm, then the server's answer. */
+function MovePanel({ sub, role, moves }: { sub: DbSubmission; role: DbRole; moves: MovesProps }) {
+  const targets = moveTargets(sub, role), [choice, setChoice] = useState<MoveTarget | "">("");
+  /* The version the user is looking at when they open the form is the one sent: a change in between is a conflict. */
+  const [form, setForm] = useState<{ to: MoveTarget; version: number; stage: Stage } | null>(null);
+  const m = moves.state, mine = m.status !== "idle" && m.account === moves.account, here = mine && ("request" in m ? m.request.submissionId : m.submissionId) === sub.id;
+
+  if (here && m.status === "saving") return <div className="nextbox ro" role="status"><b>{`Saving the move to ${m.request.toStage}…`}</b><span className="small">{m.attempt > 0 ? "No answer yet: asking the server again with the same request." : "Waiting for the server to confirm."}</span></div>;
+  if (here && m.status === "uncertain") return (
+    <div role="alert">
+      <div className="nextbox you"><b>{`The move to ${m.request.toStage} could not be confirmed`}</b><span className="small">The server did not answer, so it may or may not have been saved. Checking again sends the same request; it cannot be saved twice.</span></div>
+      <div className="row" style={{ display: "flex", gap: 8, marginTop: 8 }}>
+        <button type="button" className="btn btn-p btn-sm" onClick={moves.retry}>Check again</button>
+        <button type="button" className="btn btn-s btn-sm" onClick={moves.dismiss}>Show the latest information</button>
+      </div>
+    </div>
+  );
+  if (here && m.status === "saved") return (
+    <>
+      <div className="nextbox done" role="status" style={{ marginBottom: 4 }}><b>{`Stage saved: ${m.toStage}`}</b><span className="small">Confirmed by the server and saved in the portal database. Lists and counts are refreshed. Nobody is notified and Manatal is not updated.</span></div>
+      <div style={{ display: "flex", gap: 8 }}><a className="btn btn-p" href="#candidates" onClick={moves.dismiss}>Back to pipeline</a><button type="button" className="btn btn-s" onClick={moves.dismiss}>Done</button></div>
+    </>
+  );
+  if (here && m.status === "conflict") return (
+    <div role="alert"><div className="banner warn" style={{ margin: "0 0 8px" }}>{MOVE_MESSAGES.conflict}</div><button type="button" className="btn btn-s btn-sm" onClick={moves.dismiss}>Review the latest stage</button></div>
+  );
+  if (here && m.status === "failed") return (
+    <div role="alert"><div className="err">{m.message}</div><button type="button" className="btn btn-s btn-sm" style={{ marginTop: 8 }} onClick={moves.dismiss}>OK</button></div>
+  );
+  if (mine && (m.status === "saving" || m.status === "uncertain")) return <p className="small muted">Another stage change is still being saved or confirmed. Finish it first.</p>;
+
+  if (!targets.length) return <p className="small muted">{role.status !== "Open" ? `This role is ${role.status.toLowerCase()}, so stage changes are paused.` : `Stage changes from ${sub.stage} are not available in this version.`}</p>;
+  if (form) {
+    const big = form.to === "Offer" || form.to === "Hired";
+    return (
+      <form className="form" id="moveForm" onSubmit={(e) => { e.preventDefault(); if (moves.move(sub, form.to, { version: form.version, stage: form.stage })) setForm(null); }}>
+        <h3 style={{ marginBottom: 10 }}>{`Move to ${form.to}`}</h3>
+        {big && <div className="banner warn" style={{ margin: "0 0 10px" }}>{`Provisional for development testing: client moves to Offer and Hired are not approved for production. This saves the ${form.to} stage only; it does not record that an offer was ${form.to === "Hired" ? "accepted" : "made"}.`}</div>}
+        <p className="small muted" style={{ margin: "0 0 10px" }}>{`From ${sub.stage} to ${form.to}. Saved in the portal database only; nobody is notified and Manatal is not updated.`}</p>
+        <div className="row"><button type="button" className="btn btn-s" onClick={() => setForm(null)}>Cancel</button><button type="submit" className="btn btn-p">{`Move to ${form.to}`}</button></div>
+      </form>
+    );
+  }
+  const to = (choice || targets[0]) as MoveTarget;
+  return (
+    <>
+      <label className="small" htmlFor="mv" style={{ display: "block", fontWeight: 600, marginTop: 4 }}>Move to another stage</label>
+      <div style={{ display: "flex", gap: 8 }}>
+        <select id="mv" className="sel" style={{ minWidth: 0, flex: 1 }} value={to} onChange={(e) => setChoice(e.target.value as MoveTarget)}>
+          {targets.map((s) => <option key={s} value={s}>{s === "Offer" || s === "Hired" ? `${s} (provisional)` : s}</option>)}
+        </select>
+        <button type="button" className="btn btn-s btn-sm" data-form="move" onClick={() => setForm({ to, version: sub.version, stage: sub.stage })}>Continue</button>
+      </div>
+    </>
+  );
+}
