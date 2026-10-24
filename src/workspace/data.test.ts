@@ -1,6 +1,7 @@
 /* Workspace data: strict row checks (no filling in), and the counts the Roles and Candidates lists show. */
 import { describe, expect, it } from "vitest";
 import { alsoFor, countByStage, forRole, loadWorkspace, roleRow, uniquePeople, utcToday, type WorkspaceDb } from "./data";
+import { fakeDb } from "./fakeDb";
 
 const C = "client-1";
 const base = () => ({
@@ -18,15 +19,13 @@ const base = () => ({
     { id: "s3", client_id: C, role_id: "r1", person_id: "p2", stage: "Declined", shared_on: "2026-10-08", publication: "published", version: 1 },
   ],
   submission_events: [
-    { submission_id: "s1", client_id: C, kind: "shared", to_stage: "To review", occurred_on: "2026-10-08" },
-    { submission_id: "s1", client_id: C, kind: "stage_move", to_stage: "Interview", occurred_on: "2026-10-10" },
-    { submission_id: "s3", client_id: C, kind: "stage_move", to_stage: "Declined", occurred_on: "2026-09-30" },
+    { id: 1, submission_id: "s1", client_id: C, submission_version: 1, kind: "shared", to_stage: "To review", occurred_on: "2026-10-08", actor_kind: "revenue_optics", actor_member_id: null },
+    { id: 2, submission_id: "s1", client_id: C, submission_version: 2, kind: "stage_move", to_stage: "Interview", occurred_on: "2026-10-10", actor_kind: "client", actor_member_id: "m-me" },
+    { id: 3, submission_id: "s3", client_id: C, submission_version: 2, kind: "stage_move", to_stage: "Declined", occurred_on: "2026-09-30", actor_kind: "client", actor_member_id: null },
   ] as Record<string, unknown>[],
 });
 type Tables = ReturnType<typeof base>;
-const db = (t: Tables, errors: Partial<Record<keyof Tables, unknown>> = {}): WorkspaceDb => ({
-  from: (table) => ({ select: () => Promise.resolve({ data: errors[table as keyof Tables] ? null : (t[table as keyof Tables] as Record<string, unknown>[]), error: errors[table as keyof Tables] ?? null }) }),
-});
+const db = (t: Tables, errors: Partial<Record<keyof Tables, unknown>> = {}): WorkspaceDb => fakeDb(t as unknown as Record<string, Record<string, unknown>[]>, { errors }).db;
 
 describe("loadWorkspace", () => {
   it("maps the rows, sorts roles by title and submissions newest first", async () => {
@@ -35,6 +34,7 @@ describe("loadWorkspace", () => {
     expect(ws.subs.map((s) => s.id)).toEqual(["s3", "s1", "s2"]);   // 8 Oct (Ann before Jo), then 20 Sep
     expect(ws.moves).toEqual([{ submissionId: "s1", toStage: "Interview", occurredOn: "2026-10-10" }, { submissionId: "s3", toStage: "Declined", occurredOn: "2026-09-30" }]);
     expect(ws.people.get("p2")).toEqual({ id: "p2", name: "Ann Lee", headline: "", location: "" });
+    expect(ws.events.filter((e) => e.submissionId === "s1").map((e) => [e.version, e.kind, e.actorKind, e.actorMemberId])).toEqual([[1, "shared", "revenue_optics", null], [2, "stage_move", "client", "m-me"]]);
   });
   it("stops, rather than show or fill in anything, on bad or foreign rows", async () => {
     const broken: [string, (t: Tables) => void][] = [
@@ -48,8 +48,12 @@ describe("loadWorkspace", () => {
       ["unpublished row", (t) => { t.submissions[0].publication = "unpublished"; }],
       ["role not returned", (t) => { t.roles.splice(0, 1); }],
       ["person not returned", (t) => { t.people.splice(1, 1); }],
-      ["history for a hidden submission", (t) => { t.submission_events.push({ submission_id: "s9", client_id: C, kind: "stage_move", to_stage: "Offer", occurred_on: "2026-10-01" }); }],
-      ["unexpected history kind", (t) => { t.submission_events.push({ submission_id: "s1", client_id: C, kind: "note", to_stage: "Offer", occurred_on: "2026-10-01" }); }],
+      ["history for a hidden submission", (t) => { t.submission_events.push({ id: 9, submission_id: "s9", client_id: C, submission_version: 2, kind: "stage_move", to_stage: "Offer", occurred_on: "2026-10-01", actor_kind: "client", actor_member_id: null }); }],
+      ["history entry without a version", (t) => { delete t.submission_events[1].submission_version; }],
+      ["two history entries with the same version", (t) => { t.submission_events[1].submission_version = 1; }],
+      ["unknown actor", (t) => { t.submission_events[1].actor_kind = "robot"; }],
+      ["a Revenue Optics entry with a client member", (t) => { t.submission_events[0].actor_member_id = "m-me"; }],
+      ["unexpected history kind", (t) => { t.submission_events.push({ id: 10, submission_id: "s1", client_id: C, submission_version: 3, kind: "note", to_stage: "Offer", occurred_on: "2026-10-01", actor_kind: "client", actor_member_id: null }); }],
     ];
     for (const [label, change] of broken) { const t = base(); change(t); await expect(loadWorkspace(db(t), C), label).rejects.toThrow(); }
     await expect(loadWorkspace(db(base(), { people: { message: "permission denied" } }), C)).rejects.toThrow();

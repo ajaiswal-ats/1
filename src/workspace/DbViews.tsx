@@ -6,7 +6,7 @@ import { fd } from "../lib/dates";
 import { navFor } from "../lib/route";
 import { Seg, plural, stageColor } from "../progress/shared";
 import { StatusChip } from "../roles/StatusChip";
-import { alsoFor, countByStage, forRole, person, roleFor, roleRow, uniquePeople, type DbRole, type DbSubmission, type Workspace } from "./data";
+import { alsoFor, countByStage, forRole, history, person, roleFor, roleRow, uniquePeople, type DbRole, type DbSubmission, type HistoryEntry, type Workspace } from "./data";
 import { MOVE_MESSAGES, moveTargets, type MoveState, type MoveTarget } from "./moves";
 import type { WorkspaceState } from "./store";
 
@@ -24,7 +24,8 @@ const year = (d: string) => d.slice(0, 4);
 export interface MovesProps { account: string; state: MoveState; move(sub: DbSubmission, to: MoveTarget, seen: { version: number; stage: Stage }): boolean; retry(): void; dismiss(): void }
 export const NO_MOVES: MovesProps = { account: "", state: { status: "idle" }, move: () => false, retry: () => {}, dismiss: () => {} };
 
-export function WorkspacePage({ route, state, onRetry, today, moves = NO_MOVES }: { route: string; state: WorkspaceState; onRetry(): void; today: string; moves?: MovesProps }) {
+/** `memberId`: the signed-in member, so history can say "You" only for that member's own recorded changes. */
+export function WorkspacePage({ route, state, onRetry, today, moves = NO_MOVES, memberId = "" }: { route: string; state: WorkspaceState; onRetry(): void; today: string; moves?: MovesProps; memberId?: string }) {
   const current = navFor(route);
   if (route === "progress") return <NotConnected title="Hiring progress" text="Hiring progress is not connected yet. Its reports need search records that are not in the database yet." />;
   if (state.status === "idle" || state.status === "loading") return <Notice title={titleFor(route)} role="status">Loading workspace data…</Notice>;
@@ -37,7 +38,7 @@ export function WorkspacePage({ route, state, onRetry, today, moves = NO_MOVES }
     );
   }
   const ws = state.ws;
-  if (route.startsWith("c-")) return <CandidateDetail ws={ws} id={route.slice(2)} moves={moves} />;
+  if (route.startsWith("c-")) return <CandidateDetail ws={ws} id={route.slice(2)} moves={moves} memberId={memberId} />;
   if (route.startsWith("role-")) return <RoleDetail ws={ws} id={route.slice(5)} today={today} />;
   if (current === "roles") return <RolesList ws={ws} today={today} />;
   return <CandidatesList ws={ws} />;
@@ -215,7 +216,17 @@ function SubmissionTable({ ws, list, noRole = false }: { ws: Workspace; list: Db
   );
 }
 
-function CandidateDetail({ ws, id, moves }: { ws: Workspace; id: string; moves: MovesProps }) {
+/* The candidate page's tabs, as in 2h. Only Notes and history has database data (the history; notes are not stored yet). */
+const TABS = [["summary", "Summary"], ["interview", "Screening interview"], ["resume", "Resume"], ["notes", "Notes and history"]] as const;
+type Tab = (typeof TABS)[number][0];
+const TAB_NOT_CONNECTED: Record<Exclude<Tab, "notes">, string> = {
+  summary: "The summary, why Revenue Optics shared this candidate, requirement evidence, strengths, points to clarify and key facts are not connected yet.",
+  interview: "Screening interviews are not connected yet.",
+  resume: "Resumes are not connected yet.",
+};
+
+function CandidateDetail({ ws, id, moves, memberId }: { ws: Workspace; id: string; moves: MovesProps; memberId: string }) {
+  const [tab, setTab] = useState<Tab>("summary");
   const c = ws.subs.find((s) => s.id === id);
   if (!c) return <><nav className="crumb"><a href="#candidates">← Back to candidates</a></nav><p>Candidate not found. <a href="#candidates">Back to Candidates</a></p></>;
   const p = person(ws, c), r = roleFor(ws, c), others = ws.subs.filter((x) => x.personId === c.personId && x.id !== c.id), si = STAGES.indexOf(c.stage);
@@ -233,7 +244,12 @@ function CandidateDetail({ ws, id, moves }: { ws: Workspace; id: string; moves: 
               ? <p className="small" style={{ margin: "14px 0 0" }}><span className="chip c-mute">Declined</span></p>
               : <ol className="steps" aria-label="Stage">{STAGES.map((s, i) => <li key={s} className={i < si ? "done" : i === si ? "cur" : ""} aria-current={i === si ? "step" : undefined}>{s}</li>)}</ol>}
           </div>
-          <div className="tabp"><div className="rempty">The summary, requirement evidence, screening interview, resume, notes and history are not connected yet.</div></div>
+          <div className="tabs" role="tablist">
+            {TABS.map(([k, l]) => <button key={k} type="button" role="tab" data-tab={k} aria-selected={tab === k} onClick={() => setTab(k)}>{l}</button>)}
+          </div>
+          <div className="tabp" role="tabpanel">
+            {tab === "notes" ? <History ws={ws} sub={c} memberId={memberId} /> : <div className="rempty">{TAB_NOT_CONNECTED[tab]}</div>}
+          </div>
         </div>
         <aside className="card act" aria-label="Next step"><div className="pad">
           <h2>Next step</h2>
@@ -247,6 +263,29 @@ function CandidateDetail({ ws, id, moves }: { ws: Workspace; id: string; moves: 
           <p className="mock">{NOT_NOTIFIED}</p>
         </div></aside>
       </div>
+    </>
+  );
+}
+
+/** One history line, in 2h's wording: "Revenue Optics shared Priya for this role", "You moved Priya to Interview". */
+export function historyText(e: HistoryEntry, firstName: string) {
+  if (e.kind === "shared") return `${e.actor} shared ${firstName} for this role`;
+  return e.toStage === "Declined" ? `${e.actor} declined ${firstName}` : `${e.actor} moved ${firstName} to ${e.toStage}`;
+}
+
+export function History({ ws, sub, memberId }: { ws: Workspace; sub: DbSubmission; memberId: string }) {
+  const first = person(ws, sub).name.split(/\s+/)[0], h = history(ws, sub, memberId);
+  return (
+    <>
+      <div className="sec-h"><h2>Your notes on this candidate</h2></div>
+      <p className="muted small">Notes are not connected yet.</p>
+      <h2 style={{ margin: "22px 0 8px" }}>History</h2>
+      {h.entries.length
+        ? <ol className="hist">{h.entries.slice().reverse().map((e) => <li key={e.version}><span className="t">{fd(e.date)}</span><span>{historyText(e, first)}</span></li>)}</ol>
+        : <p className="muted small">No history is available for this candidate.</p>}
+      {h.missing > 0 && <p className="small muted" role="note">{`${h.missing} ${plural(h.missing, "change is", "changes are")} not shown: ${plural(h.missing, "its", "their")} history ${plural(h.missing, "entry is", "entries are")} not available.`}</p>}
+      {h.beyondCurrent && <p className="small muted" role="note">The history has changes newer than the stage shown. Reload the page to see the latest stage.</p>}
+      <p className="xs muted" style={{ marginTop: 10 }}>Newest first; dates are calendar days in UTC. &ldquo;You&rdquo; marks changes you made in the portal. &ldquo;Client team&rdquo; is someone else at your company, or a change recorded without who made it.</p>
     </>
   );
 }

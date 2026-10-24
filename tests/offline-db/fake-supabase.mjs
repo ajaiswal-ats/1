@@ -13,7 +13,8 @@ export const URL_BASE = "https://abcdefghijklmnopqrst.supabase.co";
 export const PASSWORDS = { harbor: "offline-pw-harbor", northwind: "offline-pw-northwind", harborInactive: "offline-pw-inactive", noMembership: "offline-pw-nomember" };
 const EMAILS = { harbor: "portal-test-harbor@example.com", northwind: "portal-test-northwind@example.com", harborInactive: "portal-test-harbor-inactive@example.com", noMembership: "portal-test-no-membership@example.com" };
 
-export async function createProject() {
+/** `maxRows`: the server's row cap per request, like Supabase's "Max rows" (1,000 by default). */
+export async function createProject({ maxRows = 1000 } = {}) {
   const db = new PGlite();
   await db.exec(`
     create role anon nologin; create role authenticated nologin; create role service_role nologin;
@@ -32,7 +33,7 @@ export async function createProject() {
   await db.exec(`insert into auth.users (email, email_confirmed_at) select e, now() from unnest(array[${Object.values(EMAILS).map((e) => `'${e}'`).join(",")}]) e`);
   await db.exec(read("supabase/seed/m1_memberships.sql"));
   const ids = Object.fromEntries((await db.query("select email, id from auth.users")).rows.map((r) => [r.email, r.id]));
-  return { db, ids, fetch: makeFetch(db, ids) };
+  return { db, ids, fetch: makeFetch(db, ids, maxRows) };
 }
 
 /** Runs one SQL statement as a user, the way PostgREST does: role and claims set for this transaction only. */
@@ -45,7 +46,7 @@ export async function asUser(db, sub, sql, params = []) {
   });
 }
 
-function makeFetch(db, ids) {
+function makeFetch(db, ids, maxRows) {
   const tokens = new Map();
   const jwt = (p) => `eyJhbGciOiJub25lIn0.${Buffer.from(JSON.stringify(p)).toString("base64url")}.offline`;
   const reply = (status, body) => new Response(status === 204 || body === undefined ? null : typeof body === "string" ? body : JSON.stringify(body),
@@ -70,16 +71,24 @@ function makeFetch(db, ids) {
     if (bearer && !tokens.has(bearer)) return reply(401, { code: "PGRST301", message: "JWT invalid" });
     const sub = bearer ? tokens.get(bearer) : null;
     const name = u.pathname.slice("/rest/v1/".length);
-    const limit = u.searchParams.get("limit");
+    const limit = u.searchParams.get("limit"), order = u.searchParams.get("order");
     if (limit !== null && !/^\d+$/.test(limit)) throw new Error("fake: bad limit");
-    const filters = [...u.searchParams].filter(([k]) => k !== "select" && k !== "limit").map(([k, v]) => { const m = v.match(/^eq\.(.*)$/); if (!/^[a-z_]+$/.test(k) || !m) throw new Error(`fake: unsupported filter ${k}=${v}`); return [k, m[1]]; });
-    const where = filters.length ? ` where ${filters.map(([k], i) => `${k}::text = $${i + 1}`).join(" and ")}` : "";
-    const params = filters.map(([, v]) => v);
+    if (order !== null && !/^[a-z_]+\.asc$/.test(order)) throw new Error(`fake: unsupported order ${order}`);
+    const filters = [...u.searchParams].filter(([k]) => !["select", "limit", "order"].includes(k)).map(([k, v]) => {
+      const m = v.match(/^(eq|gt)\.(.*)$/);
+      if (!/^[a-z_]+$/.test(k) || !m) throw new Error(`fake: unsupported filter ${k}=${v}`);
+      return [k, m[1], m[2]];
+    });
+    /* eq compares as text (as before); gt compares in the column's own type, as PostgREST does. */
+    const where = filters.length ? ` where ${filters.map(([k, op], i) => (op === "eq" ? `${k}::text = $${i + 1}` : `${k} > $${i + 1}`)).join(" and ")}` : "";
+    const params = filters.map(([, , v]) => v);
+    const rowCap = Math.min(limit === null ? Infinity : Number(limit), maxRows);
+    const tail = `${order ? ` order by ${order.replace(/\.asc$/, "")} asc` : ""}${Number.isFinite(rowCap) ? ` limit ${rowCap}` : ""}`;
     try {
       if (method === "GET") {
         const cols = (u.searchParams.get("select") || "*").split(",");
         if (!cols.every((c) => /^([a-z_]+|\*)$/.test(c))) throw new Error("fake: bad select");
-        const r = await asUser(db, sub, `select coalesce(json_agg(t), '[]')::text as j from (select ${cols.join(", ")} from public.${name}${where}${limit ? ` limit ${limit}` : ""}) t`, params);
+        const r = await asUser(db, sub, `select coalesce(json_agg(t), '[]')::text as j from (select ${cols.join(", ")} from public.${name}${where}${tail}) t`, params);
         return reply(200, r.rows[0].j);
       }
       if (method === "POST" && name === "rpc/client_move_stage") {

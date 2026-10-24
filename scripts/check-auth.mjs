@@ -33,17 +33,24 @@ const WORKSPACES = {
             row("c1", { id: "r12", title: "Dispatch Planner", location: "", status: "On hold", opened_on: "2026-09-15", recruiter_name: "" })],
     people: [row("c1", { id: "p11", name: "Riley Offline", headline: "Technician · Example Co", location: "Reno, NV" }), row("c1", { id: "p12", name: "Casey Offline", headline: "", location: "" }),
              row("c1", { id: "p13", name: "Jordan Offline", headline: "Coordinator", location: "" })],
-    submissions: [row("c1", { id: "5a1a0000-0000-4000-8000-000000000011", role_id: "r11", person_id: "p11", stage: "Interview", shared_on: ago(5), publication: "published", version: 1 }),
+    submissions: [row("c1", { id: "5a1a0000-0000-4000-8000-000000000011", role_id: "r11", person_id: "p11", stage: "Interview", shared_on: ago(5), publication: "published", version: 2 }),
                   row("c1", { id: "5a1a0000-0000-4000-8000-000000000012", role_id: "r12", person_id: "p11", stage: "To review", shared_on: ago(3), publication: "published", version: 1 }),
-                  row("c1", { id: "5a1a0000-0000-4000-8000-000000000013", role_id: "r11", person_id: "p12", stage: "Declined", shared_on: ago(20), publication: "published", version: 1 }),
+                  row("c1", { id: "5a1a0000-0000-4000-8000-000000000013", role_id: "r11", person_id: "p12", stage: "Declined", shared_on: ago(20), publication: "published", version: 2 }),
                   row("c1", { id: "5a1a0000-0000-4000-8000-000000000014", role_id: "r11", person_id: "p13", stage: "To review", shared_on: ago(30), publication: "published", version: 1 })],
-    submission_events: [row("c1", { submission_id: "5a1a0000-0000-4000-8000-000000000011", kind: "stage_move", to_stage: "Interview", occurred_on: ago(1) })],
+    submission_events: [
+      row("c1", { id: 1, submission_id: "5a1a0000-0000-4000-8000-000000000011", submission_version: 1, kind: "shared", to_stage: "To review", occurred_on: ago(5), actor_kind: "revenue_optics", actor_member_id: null }),
+      row("c1", { id: 2, submission_id: "5a1a0000-0000-4000-8000-000000000011", submission_version: 2, kind: "stage_move", to_stage: "Interview", occurred_on: ago(1), actor_kind: "client", actor_member_id: null }),
+      row("c1", { id: 3, submission_id: "5a1a0000-0000-4000-8000-000000000012", submission_version: 1, kind: "shared", to_stage: "To review", occurred_on: ago(3), actor_kind: "revenue_optics", actor_member_id: null }),
+      row("c1", { id: 4, submission_id: "5a1a0000-0000-4000-8000-000000000013", submission_version: 1, kind: "shared", to_stage: "To review", occurred_on: ago(20), actor_kind: "revenue_optics", actor_member_id: null }),
+      row("c1", { id: 5, submission_id: "5a1a0000-0000-4000-8000-000000000013", submission_version: 2, kind: "stage_move", to_stage: "Declined", occurred_on: ago(15), actor_kind: "client", actor_member_id: null }),
+      row("c1", { id: 6, submission_id: "5a1a0000-0000-4000-8000-000000000014", submission_version: 1, kind: "shared", to_stage: "To review", occurred_on: ago(30), actor_kind: "revenue_optics", actor_member_id: null }),
+    ],
   },
   c2: {
     roles: [row("c2", { id: "r21", title: "Second Role Only", location: "Austin, TX", status: "Open", opened_on: "2026-10-03", recruiter_name: "Jamie Scott" })],
     people: [row("c2", { id: "p21", name: "Sky Second", headline: "Planner", location: "" })],
     submissions: [row("c2", { id: "5a1a0000-0000-4000-8000-000000000021", role_id: "r21", person_id: "p21", stage: "To review", shared_on: "2026-10-09", publication: "published", version: 1 })],
-    submission_events: [],
+    submission_events: [row("c2", { id: 7, submission_id: "5a1a0000-0000-4000-8000-000000000021", submission_version: 1, kind: "shared", to_stage: "To review", occurred_on: "2026-10-09", actor_kind: "revenue_optics", actor_member_id: null })],
   },
   c4: { roles: [], people: [], submissions: [], submission_events: [] },
 };
@@ -52,7 +59,17 @@ const control = { slowClient: null, failWorkspaceOnce: new Set(["c4"]), loseRpcA
 /* client_move_stage, as the made-up server: same rules as the real function (stored result per key, version check,
    provisional stage rule). `loseRpcAnswers`: process the request, then drop the answer (an uncertain outcome). */
 const rpcKeys = new Map(), rpcCalls = [], unrecordedSends = [];
-function moveStage(cid, b) {
+let nextEventId = 1000;
+/* PostgREST-style paging for the made-up server: order=<col>.asc, <col>=gt.<value>, limit, and a 1,000-row cap. */
+function pageOf(rows, params) {
+  const order = params.get("order")?.replace(/\.asc$/, ""), limit = Math.min(Number(params.get("limit") ?? Infinity), 1000);
+  const cmp = (a, b) => (typeof a === "number" && typeof b === "number" ? a - b : String(a) < String(b) ? -1 : String(a) > String(b) ? 1 : 0);
+  let out = rows.slice();
+  if (order) out.sort((a, b) => cmp(a[order], b[order]));
+  for (const [k, v] of params) if (v.startsWith("gt.")) out = out.filter((r) => cmp(r[k], typeof r[k] === "number" ? Number(v.slice(3)) : v.slice(3)) > 0);
+  return out.slice(0, limit);
+}
+function moveStage(cid, b, memberId) {
   const ws = WORKSPACES[cid], sub = ws?.submissions.find((x) => x.id === b.p_submission_id);
   if (!sub) return [404, { code: "PT404", message: "submission_not_found" }];
   const k = `${cid}:${b.p_submission_id}:${b.p_idempotency_key}`, fp = `${b.p_to_stage}:${b.p_expected_version}`;
@@ -62,12 +79,14 @@ function moveStage(cid, b) {
   if (role.status !== "Open" || ["Offer", "Hired", "Declined"].includes(sub.stage) || !["To review", "Interview", "Offer", "Hired"].includes(b.p_to_stage) || b.p_to_stage === sub.stage)
     return [403, { code: "PT403", message: "move_not_permitted" }];
   sub.stage = b.p_to_stage; sub.version += 1;
-  ws.submission_events.push(row(cid, { submission_id: sub.id, kind: "stage_move", to_stage: sub.stage, occurred_on: ago(0) }));
+  ws.submission_events.push(row(cid, { id: nextEventId++, submission_id: sub.id, submission_version: sub.version, kind: "stage_move", to_stage: sub.stage, occurred_on: ago(0), actor_kind: "client", actor_member_id: memberId }));
   const result = { submission_id: sub.id, stage: sub.stage, version: sub.version, event_id: ws.submission_events.length };
   rpcKeys.set(k, { fp, result });
   return [200, result];
 }
-const bump = (cid, id, stage) => { const sub = WORKSPACES[cid].submissions.find((x) => x.id === id); sub.stage = stage; sub.version += 1; };
+/* Another member's move (made outside this browser), with its history entry. */
+const bump = (cid, id, stage) => { const ws = WORKSPACES[cid], sub = ws.submissions.find((x) => x.id === id); sub.stage = stage; sub.version += 1;
+  ws.submission_events.push(row(cid, { id: nextEventId++, submission_id: id, submission_version: sub.version, kind: "stage_move", to_stage: stage, occurred_on: ago(0), actor_kind: "client", actor_member_id: "m-colleague" })); };
 const DEMO_STRINGS = ["Taylor Brooks", "Maria Alvarez", "Mockup · fictional data", "Inside Sales Leader"];
 
 const { ck, done } = reporter();
@@ -113,7 +132,7 @@ async function handle(route) {
     if (!recorded) unrecordedSends.push(b.p_idempotency_key);
     if (control.holdRpc) await control.holdRpc;
     if (!cid) return json(route, 403, { code: "PT403", message: "not_a_client_member" });
-    const [status, out] = moveStage(cid, b);
+    const [status, out] = moveStage(cid, b, user.member.id);
     if (control.loseRpcAnswers > 0) { control.loseRpcAnswers--; return route.abort("connectionreset"); }
     return json(route, status, out);
   }
@@ -121,7 +140,7 @@ async function handle(route) {
     if (!cid) return json(route, 200, []);
     if (table === "roles" && control.failWorkspaceOnce.has(cid)) { control.failWorkspaceOnce.delete(cid); return json(route, 500, { message: "Internal error" }); }
     if (control.slowClient === cid) await new Promise((r) => setTimeout(r, 1500));   /* a slow answer, to test that it is ignored once stale */
-    return json(route, 200, WORKSPACES[cid][table]);
+    return json(route, 200, pageOf(WORKSPACES[cid][table], u.searchParams));
   }
   return json(route, 404, { message: "not mocked" });
 }
@@ -190,11 +209,16 @@ try {
   let n0 = moveCalls();
   await A.dblclick("#moveForm button[type=submit]");
   ck("move: success is shown after the server confirms", await waitText(A, ".act", "Stage saved: Offer"));
-  ck("move: a double click sends one request, with the version seen and a new key", moveCalls() - n0 === 1 && rpcCalls.at(-1).p_expected_version === 1 && /^[0-9a-f-]{36}$/.test(rpcCalls.at(-1).p_idempotency_key));
+  ck("move: a double click sends one request, with the version seen and a new key", moveCalls() - n0 === 1 && rpcCalls.at(-1).p_expected_version === 2 && /^[0-9a-f-]{36}$/.test(rpcCalls.at(-1).p_idempotency_key));
   await shot(A, "move-saved");
   ck("move: the page shows the refreshed stage from the database", await waitText(A, ".statusdl", "Offer"));
   await A.click("text=Done");
   ck("after Done: no further moves from Offer [provisional rule]", await waitText(A, ".act", "Stage changes from Offer are not available"));
+  await A.click("[data-tab=notes]");
+  { const items = await A.$$eval(".hist li", (li) => li.map((x) => x.innerText.replace(/\s+/g, " ").trim()));
+    ck("history: newest first, with dates; 'You' for the user's own move, 'Client team' for an unrecorded client move",
+      items.length === 3 && /You moved Riley to Offer$/.test(items[0]) && /Client team moved Riley to Interview$/.test(items[1]) && /Revenue Optics shared Riley for this role$/.test(items[2]), items.join(" | ")); }
+  await shot(A, "history");
   await A.evaluate(() => (location.hash = "#candidates"));
   ck("move: lists and counts are refreshed from the database", await waitText(A, '.col[aria-label="Offer"] .ct', "1"));
 
@@ -208,6 +232,8 @@ try {
   await shot(A, "move-conflict");
   await A.click("text=Review the latest stage");
   ck("conflict: the latest stage from the database is shown for review", await waitText(A, ".statusdl", "Offer"));
+  await A.click("[data-tab=notes]");
+  ck("history: another member's move is 'Client team', not 'You'", await waitText(A, ".hist", "Client team moved Jordan to Offer") && !(await A.innerText(".hist")).includes("You moved Jordan"));
   bump("c1", "5a1a0000-0000-4000-8000-000000000014", "Interview");     /* the made-up "other user" moves it back, so the next test can move it */
   await A.reload(); await waitH1(A, "Jordan Offline");
 

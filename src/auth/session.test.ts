@@ -78,6 +78,62 @@ describe("signing in", () => {
   });
 });
 
+describe("superseded sign-in attempts (regression: another tab signs in while this one is pending)", () => {
+  /** An auth client whose sign-in answers only when told to, and can then resolve or throw. */
+  function slowAuth() {
+    let cb: (event: string, s: ReturnType<typeof session> | null) => void = () => {}, finish!: (f: () => unknown) => void;
+    const auth: AuthClient = {
+      getSession: async () => ({ data: { session: null }, error: null }),
+      onAuthStateChange: (f) => { cb = f; return { data: { subscription: { unsubscribe() {} } } }; },
+      signInWithPassword: () => new Promise((res, rej) => { finish = (f) => { try { res(f() as never); } catch (e) { rej(e); } }; }),
+      signOut: async () => ({ error: null }),
+    };
+    return { auth, emit: (event: string, id: string | null) => cb(event, id ? session(id) : null), finish: (f: () => unknown) => finish(f) };
+  }
+  const quota = () => { throw new DOMException("The quota has been exceeded.", "QuotaExceededError"); };
+  const outcomes: [string, () => unknown][] = [
+    ["throws a storage failure", quota],
+    ["throws an unexpected error", () => { throw new Error("lock timed out"); }],
+    ["returns an error", () => ({ data: { session: null }, error: { code: "invalid_credentials", status: 400 } })],
+    ["returns its own session", () => ({ data: { session: session("a") }, error: null })],
+  ];
+  for (const [label, outcome] of outcomes) {
+    it(`the older attempt ${label}: the newer account stays, with no message`, async () => {
+      const f = slowAuth(), c = createAuthController(f.auth, async (id) => active(id));
+      c.start(); await flush();
+      const p = c.signIn("a@example.com", "pw");
+      f.emit("SIGNED_IN", "b"); await flush(); await flush();
+      expect(c.getState()).toMatchObject({ status: "ready", user: { id: "b" } });
+      f.finish(outcome); await p; await flush();
+      expect(c.getState()).toMatchObject({ status: "ready", user: { id: "b" }, client: { name: "Client b" } });
+    });
+  }
+  it("an attempt superseded by a sign-out elsewhere does not sign anyone in", async () => {
+    const f = slowAuth(), c = createAuthController(f.auth, async (id) => active(id));
+    c.start(); await flush();
+    const p = c.signIn("a@example.com", "pw");
+    f.emit("SIGNED_IN", "b"); await flush(); await flush();
+    f.emit("SIGNED_OUT", null); await flush();
+    f.finish(() => ({ data: { session: session("a") }, error: null })); await p; await flush();
+    expect(c.getState()).toEqual({ status: "signed-out", pending: false, error: null, notice: null });
+  });
+  it("with no race, each kind of failure gets its own message", async () => {
+    for (const [outcome, message] of [
+      [quota, MESSAGES.storage],
+      [() => { throw Object.assign(new Error("quota"), { name: "NS_ERROR_DOM_QUOTA_REACHED" }); }, MESSAGES.storage],
+      [() => { throw new Error("lock timed out"); }, MESSAGES.unexpected],
+      [() => { throw new DOMException("denied", "SecurityError"); }, MESSAGES.unexpected],
+      [() => ({ data: { session: null }, error: { name: "AuthRetryableFetchError", status: 0 } }), MESSAGES.offline],
+    ] as [() => unknown, string][]) {
+      const f = slowAuth(), c = createAuthController(f.auth, async (id) => active(id));
+      c.start(); await flush();
+      const p = c.signIn("a@example.com", "pw");
+      f.finish(outcome); await p;
+      expect(c.getState()).toEqual({ status: "signed-out", pending: false, error: message, notice: null });
+    }
+  });
+});
+
 describe("account states", () => {
   it("an inactive or unassigned account gets the no-access state", async () => {
     const c = createAuthController(fakeAuth({ stored: "a" }).auth, async () => ({ kind: "none" }));

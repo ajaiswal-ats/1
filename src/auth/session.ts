@@ -4,7 +4,10 @@
      the account is dropped at once, before anything for the new user loads. Late answers for an earlier user are ignored.
    * A failed sign-in or account load is shown as such. Nothing falls back to the demo's fictional data.
    * Inactive and unassigned accounts look the same to the browser (row-level security hides both), so they share one state.
-   * Sign-out clears the account immediately, even if the sign-in service cannot be reached. */
+   * Sign-out clears the account immediately, even if the sign-in service cannot be reached.
+   * A sign-in attempt's own result (session, error or exception) is used only while that attempt is still the current
+     one. If anything newer happened meanwhile (another tab signed in, the user signed out), it is ignored and the state
+     keeps following the SDK's session events, which reflect the session actually stored. */
 
 export interface SessionUser { id: string; email: string }
 export interface Member { id: string; clientId: string; displayName: string; jobTitle: string }
@@ -40,6 +43,14 @@ export const MESSAGES = {
   restore: "Your previous session could not be restored. Sign in again.",
   account: "Your workspace could not be loaded. Nothing is shown in its place.",
   signedOutOffline: "Signed out on this device. The sign-in service could not be reached, so the session may stay valid there until it expires.",
+  storage: "This browser could not save your sign-in because its storage for this site is full. Free up or allow site data for this site, then try again.",
+  unexpected: "Sign-in did not complete because of an unexpected problem in this browser. Reload the page, then try again.",
+};
+
+/** Recognised browser-storage failures when the sign-in is saved (supabase-js rethrows these instead of returning an error). */
+export const isStorageFailure = (e: unknown) => {
+  const name = (e as { name?: unknown } | null)?.name, code = (e as { code?: unknown } | null)?.code;
+  return name === "QuotaExceededError" || name === "NS_ERROR_DOM_QUOTA_REACHED" || code === 22 || code === 1014;
 };
 
 export function signInMessage(e: AuthError): string {
@@ -66,6 +77,7 @@ const userOf = (s: Session | null): SessionUser | null => (s?.user?.id ? { id: s
 export function createAuthController(auth: AuthClient, loadAccount: LoadAccount, defer: (f: () => void) => void = (f) => setTimeout(f, 0)): AuthController {
   let state: AuthState = { status: "restoring" };
   let generation = 0;            // bumped on every change of user or sign-out; older account loads are discarded
+  let attempt = 0;               // the current sign-in attempt; results of older attempts are ignored
   let userId: string | null = null;
   const listeners = new Set<() => void>();
   const set = (s: AuthState) => { state = s; listeners.forEach((l) => l()); };
@@ -109,10 +121,17 @@ export function createAuthController(auth: AuthClient, loadAccount: LoadAccount,
     async signIn(email, password) {
       if (state.status !== "signed-out" || state.pending) return;
       if (!email.trim() || !password) { set(signedOut(MESSAGES.missing)); return; }
-      set({ status: "signed-out", pending: true, error: null, notice: null });
+      const mine = ++attempt, pending: AuthState = { status: "signed-out", pending: true, error: null, notice: null };
+      set(pending);
+      /* Still the current attempt: no newer attempt, and nothing has replaced this attempt's "signing in" state. */
+      const current = () => mine === attempt && now() === pending;
       let r: Awaited<ReturnType<AuthClient["signInWithPassword"]>>;
-      try { r = await auth.signInWithPassword({ email: email.trim(), password }); } catch { set(signedOut(MESSAGES.offline)); return; }
-      if (r.error || !r.data.session) { if (now().status === "signed-out") set(signedOut(r.error ? signInMessage(r.error) : MESSAGES.other)); return; }
+      try { r = await auth.signInWithPassword({ email: email.trim(), password }); } catch (e) {
+        if (current()) set(signedOut(isStorageFailure(e) ? MESSAGES.storage : MESSAGES.unexpected));
+        return;
+      }
+      if (!current()) return;
+      if (r.error || !r.data.session) { set(signedOut(r.error ? signInMessage(r.error) : MESSAGES.other)); return; }
       apply(r.data.session);
     },
     async signOut() {

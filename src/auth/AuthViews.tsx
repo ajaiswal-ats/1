@@ -150,7 +150,7 @@ function Workspace({ route, user, member, client, onSignOut, workspace }: { rout
         </header>
         <main className="page" id="page" tabIndex={-1}>
           <WorkspacePage key={key} route={route} state={ws} onRetry={workspace.retry} today={workspace.today ?? utcToday()}
-            moves={workspace.moves ? { ...workspace.moves, account: key } : NO_MOVES} />
+            moves={workspace.moves ? { ...workspace.moves, account: key } : NO_MOVES} memberId={member.id} />
         </main>
       </div>
     </div>

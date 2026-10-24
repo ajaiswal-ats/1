@@ -6,7 +6,8 @@ import { AuthView } from "../auth/AuthViews";
 import type { AuthState } from "../auth/session";
 import { CLIENT, CURRENT_USER, FIXTURE } from "../data/fixtures";
 import type { Workspace } from "./data";
-import { WorkspacePage } from "./DbViews";
+import { History, WorkspacePage, historyText } from "./DbViews";
+import { history, type DbEvent } from "./data";
 import type { WorkspaceState } from "./store";
 
 beforeEach(() => { (globalThis as { document?: unknown }).document = { documentElement: { getAttribute: () => "light" } }; });
@@ -25,6 +26,12 @@ const WS: Workspace = {
     { id: "s3", roleId: "r1", personId: "p2", stage: "Declined", sharedOn: "2026-10-08", version: 1 },
   ],
   moves: [{ submissionId: "s1", toStage: "Interview", occurredOn: "2026-10-10" }],
+  events: [
+    { submissionId: "s1", version: 1, kind: "shared", toStage: "To review", occurredOn: "2026-10-08", actorKind: "revenue_optics", actorMemberId: null },
+    { submissionId: "s1", version: 2, kind: "stage_move", toStage: "Interview", occurredOn: "2026-10-10", actorKind: "client", actorMemberId: "m-me" },
+    { submissionId: "s2", version: 1, kind: "shared", toStage: "To review", occurredOn: "2026-09-20", actorKind: "revenue_optics", actorMemberId: null },
+    { submissionId: "s3", version: 1, kind: "shared", toStage: "To review", occurredOn: "2026-10-08", actorKind: "revenue_optics", actorMemberId: null },
+  ],
 };
 const ready: WorkspaceState = { status: "ready", key: "u1:c1", ws: WS };
 const page = (route: string, state: WorkspaceState = ready) => renderToStaticMarkup(<WorkspacePage route={route} state={state} onRetry={() => {}} today="2026-10-12" />);
@@ -88,6 +95,48 @@ describe("Candidates (database)", () => {
       if (!r.startsWith("c-s")) expect(h, r).not.toMatch(/<form|<select id="mv"|data-form/);
       for (const d of DEMO) expect(h, `${r}: ${d}`).not.toContain(d);
     }
+  });
+});
+
+describe("candidate history (read-only, from submission events)", () => {
+  const sub = (over = {}) => ({ id: "s1", roleId: "r1", personId: "p1", stage: "Offer" as const, sharedOn: "2026-10-01", version: 4, ...over });
+  const ev = (version: number, o: Partial<DbEvent>): DbEvent => ({ submissionId: "s1", version, kind: "stage_move", toStage: "Interview", occurredOn: `2026-10-0${version}`, actorKind: "client", actorMemberId: null, ...o });
+  const wsWith = (events: DbEvent[]) => ({ ...WS, events });
+  const all = [ev(1, { kind: "shared", toStage: "To review", actorKind: "revenue_optics" }), ev(2, { actorMemberId: "m-me" }), ev(3, { toStage: "Offer", actorMemberId: "m-other" }), ev(4, { toStage: "Offer", actorKind: "revenue_optics" })];
+
+  it("'You' only for the signed-in member; another member or an unrecorded client actor is 'Client team'", () => {
+    expect(history(wsWith(all), sub(), "m-me").entries.map((e) => e.actor)).toEqual(["Revenue Optics", "You", "Client team", "Revenue Optics"]);
+    expect(history(wsWith(all), sub(), "m-other").entries.map((e) => e.actor)).toEqual(["Revenue Optics", "Client team", "You", "Revenue Optics"]);
+    expect(history(wsWith([ev(2, { actorMemberId: null })]), sub({ version: 2 }), "m-me").entries[0].actor).toBe("Client team");   // seeded history
+    expect(history(wsWith([ev(2, { actorMemberId: "m-me" })]), sub({ version: 2 }), "").entries[0].actor).toBe("Client team");    // no member known
+  });
+  it("is ordered by submission version, whatever order the rows came in, and shown newest first with dates", () => {
+    const h = history(wsWith([all[2], all[0], all[3], all[1]]), sub(), "m-me");
+    expect(h.entries.map((e) => e.version)).toEqual([1, 2, 3, 4]);
+    const html = renderToStaticMarkup(<History ws={wsWith([all[2], all[0], all[3], all[1]])} sub={sub()} memberId="m-me" />);
+    const lines = [...html.matchAll(/<li><span class="t">([^<]+)<\/span><span>([^<]+)<\/span><\/li>/g)].map((m) => `${m[1]} ${m[2]}`);
+    expect(lines).toEqual(["4 Oct Revenue Optics moved Jo to Offer", "3 Oct Client team moved Jo to Offer", "2 Oct You moved Jo to Interview", "1 Oct Revenue Optics shared Jo for this role"]);
+    expect(html).toContain("Notes are not connected yet.");
+  });
+  it("says what is missing rather than inventing it", () => {
+    const gap = history(wsWith([all[0], all[3]]), sub(), "m-me");
+    expect(gap.missing).toBe(2);
+    const html = renderToStaticMarkup(<History ws={wsWith([all[0], all[3]])} sub={sub()} memberId="m-me" />);
+    expect(html).toContain("2 changes are not shown: their history entries are not available.");
+    const none = renderToStaticMarkup(<History ws={wsWith([])} sub={sub({ version: 1 })} memberId="m-me" />);
+    expect(none).toContain("No history is available for this candidate.");
+    expect(none).toContain("1 change is not shown");
+    expect(history(wsWith(all), sub({ version: 3 }), "m-me").beyondCurrent).toBe(true);
+    expect(renderToStaticMarkup(<History ws={wsWith(all)} sub={sub({ version: 3 })} memberId="m-me" />)).toContain("Reload the page to see the latest stage.");
+  });
+  it("declines read as declines", () => {
+    expect(historyText({ version: 2, date: "2026-10-02", actor: "Client team", kind: "stage_move", toStage: "Declined" }, "Jo")).toBe("Client team declined Jo");
+  });
+  it("the candidate page has the reviewed tabs; the other tabs say they are not connected", () => {
+    const h = page("c-s1");
+    expect(h).toContain('role="tablist"');
+    expect([...h.matchAll(/data-tab="(\w+)"/g)].map((m) => m[1])).toEqual(["summary", "interview", "resume", "notes"]);
+    expect(h).toContain("The summary, why Revenue Optics shared this candidate, requirement evidence");
   });
 });
 

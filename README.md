@@ -10,11 +10,15 @@ The Talent Solutions client portal, rebuilt from the `client-workspace-v1-visual
 - Supabase mode, database-backed lists (`src/workspace/`): Roles, role pages, Candidates (pipeline and list) and candidate pages read the signed-in member's own data through row-level security. Harbor and Northwind isolation checked by hand, including account switching.
 - Supabase mode, stage changes through `client_move_stage`: version sent with each move, one idempotency key per intended move (reused for retries), success only on the server's confirmation followed by a refresh, stale versions reported as conflicts (no silent retry), no answer treated as uncertain with an automatic retry and "Check again" using the same key, and late answers ignored after sign-out or an account change. Checked by hand: a normal move, a two-tab conflict, a provisional Offer, isolation, and Priya Raman's uncertain → Check again → saved path (request blocked in DevTools). Each manual run was recorded by the development test-run recorder and cleaned up with SQL generated from its exact keys.
 
+- Supabase mode, candidate history (read-only): the candidate page's Notes and history tab lists the submission's history from the database, in version order (shown newest first) with dates. "You" only for the signed-in member's own recorded changes; "Client team" for another member or a client change recorded without who made it; "Revenue Optics" for its entries. Missing entries are reported, not invented. Checked by hand: Taylor Brooks, Regional Sales Manager (both entries, their order, the current stage and the on-hold restriction).
+- Workspace reads are paginated (keyset by id, until an empty page), so the API's per-request row cap cannot silently truncate lists, counts or history; a page out of order, a failed page or the 200-page safety limit stops the load with an error instead of showing part of it. Pages are separate requests, not one snapshot: a row added during a load may be missed until the next load. Tested offline, including caps below the page size.
+- Sign-in: a pending sign-in superseded by another tab's sign-in (or a sign-out) can no longer overwrite the current account; storage-quota failures get their own message. Tested offline, including with the pinned supabase-js.
+
 **Provisional, for development testing only**
 - Client moves to Offer and Hired, and the rule behind them (open roles only; no moves out of Offer, Hired or Declined). Not approved for production (decision D3).
 
 **Not connected yet (Supabase mode)**
-- Candidate details: summary and "why shared", requirement evidence, strengths and points to clarify, key facts, screening interview, resume, notes and history. Role descriptions and requirements. "Waiting on you" and next steps. Hiring progress.
+- Candidate details: summary and "why shared", requirement evidence, strengths and points to clarify, key facts, screening interview, resume, and client notes (history is connected). Role descriptions and requirements. "Waiting on you" and next steps. Hiring progress.
 - Decline and interview feedback: shown disabled (no database functions yet).
 - Notifications and Manatal: saving a stage notifies nobody and does not update Manatal.
 
