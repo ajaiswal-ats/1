@@ -1,0 +1,9 @@
+{
+  "purpose": "Manatal feasibility step 1: read-only shape of admin-created dummy records. Copy to targets.local.json (gitignored).",
+  "confirm_all_records_are_dummy": false,
+  "dummy_candidate_tag": "portal-feasibility-dummy",
+  "organization_id": "",
+  "job_id": "",
+  "candidate_id": "",
+  "match_id": ""
+}

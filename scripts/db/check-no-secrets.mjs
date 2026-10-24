@@ -9,6 +9,10 @@ const isPublicKey = (k) => checkPublicKey(k).ok;
 
 const env = fs.existsSync(ENV_FILE) ? loadEnv([], ["SUPABASE_DB_URL", "SUPABASE_SERVICE_ROLE_KEY"]) : {};
 const secrets = ["SUPABASE_DB_URL", "SUPABASE_SERVICE_ROLE_KEY"].filter((k) => env[k]).map((k) => [k, env[k]]);
+/* The Manatal feasibility token (local only) must never reach browser code, the build or the browser settings. */
+const manatalFile = path.join(ROOT, "manatal/.env.manatal.local");
+const manatalToken = fs.existsSync(manatalFile) ? (fs.readFileSync(manatalFile, "utf8").match(/^\s*MANATAL_API_TOKEN\s*=\s*(\S+)\s*$/m) || [])[1] : null;
+if (manatalToken) secrets.push(["MANATAL_API_TOKEN", manatalToken]);
 const files = [];
 const walk = (d) => { if (!fs.existsSync(d)) return; for (const f of fs.readdirSync(d, { withFileTypes: true })) { const p = path.join(d, f.name); f.isDirectory() ? walk(p) : files.push(p); } };
 walk(path.join(ROOT, "src")); walk(path.join(ROOT, "dist")); files.push(path.join(ROOT, "index.html"));
@@ -17,6 +21,7 @@ for (const f of files) {
   const text = fs.readFileSync(f, "latin1"), rel = path.relative(ROOT, f);
   for (const [k, v] of secrets) if (v && text.includes(v)) { console.log(`FAIL ${rel} contains the value of ${k}`); bad++; }
   if (/SUPABASE_(DB_URL|SERVICE_ROLE_KEY)|service_role/i.test(text) && !rel.endsWith(".test.ts")) { console.log(`FAIL ${rel} mentions a privileged Supabase setting`); bad++; }
+  if (/MANATAL_API_TOKEN|api\.manatal\.com/i.test(text)) { console.log(`FAIL ${rel} mentions the Manatal API or its token (browser code must never call Manatal)`); bad++; }
 }
 /* Browser settings (.env.local / .env): only the public key may be given to Vite, and no privileged value at all. */
 for (const name of [".env", ".env.local", ".env.development.local", ".env.production.local"]) {

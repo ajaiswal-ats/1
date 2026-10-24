@@ -25,10 +25,17 @@ export interface DbSubmission { id: string; roleId: string; personId: string; st
 export interface DbMove { submissionId: string; toStage: Stage; occurredOn: string }
 /** One history entry. `actorMemberId` is recorded only for portal moves; seeded history has none. */
 export interface DbEvent {
-  submissionId: string; version: number; kind: "shared" | "stage_move"; toStage: Stage; occurredOn: string;
+  id: number; submissionId: string; version: number; kind: "shared" | "stage_move" | "decline" | "feedback"; toStage: Stage; occurredOn: string;
   actorKind: "client" | "revenue_optics"; actorMemberId: string | null;
 }
-export interface Workspace { clientId: string; roles: DbRole[]; people: Map<string, DbPerson>; subs: DbSubmission[]; moves: DbMove[]; events: DbEvent[] }
+/** A client's decline note or interview feedback (milestone 2). Each belongs to exactly one history entry: the same
+    submission, kind and author. Add-only; it says nothing about delivery to Manatal (not connected). */
+export interface DbNote {
+  id: string; submissionId: string; eventId: number; kind: "decline" | "feedback";
+  about: string | null; text: string; category: string | null; authorMemberId: string; createdAt: string;
+}
+/** `notes` is null when the database has no client notes yet (milestone 2 not applied): decisions are then unavailable. */
+export interface Workspace { clientId: string; roles: DbRole[]; people: Map<string, DbPerson>; subs: DbSubmission[]; moves: DbMove[]; events: DbEvent[]; notes: DbNote[] | null }
 
 interface Result { data: Record<string, unknown>[] | null; error: unknown }
 export interface PageQuery extends PromiseLike<Result> {
@@ -64,7 +71,12 @@ const date = (row: Record<string, unknown>, k: string) => { const v = text(row, 
 /** Postgres orders uuid keys by their bytes, which for the canonical lower-case text form is plain string order. */
 const after = (a: unknown, b: unknown) => (typeof a === "number" && typeof b === "number" ? a > b : typeof a === "string" && typeof b === "string" && a > b);
 
-async function rows(db: WorkspaceDb, table: string, cols: string, clientId: string, key = "id") {
+/** The table does not exist on this database (PostgREST: not in the schema cache, or an undefined table). */
+const missingTable = (e: unknown) => ["PGRST205", "42P01"].includes(String((e as { code?: unknown } | null)?.code));
+
+async function rows(db: WorkspaceDb, table: string, cols: string, clientId: string, key?: string): Promise<Record<string, unknown>[]>;
+async function rows(db: WorkspaceDb, table: string, cols: string, clientId: string, key: string, optional: true): Promise<Record<string, unknown>[] | null>;
+async function rows(db: WorkspaceDb, table: string, cols: string, clientId: string, key = "id", optional = false) {
   const all: Record<string, unknown>[] = [];
   let last: unknown = null;
   for (let page = 0; ; page++) {
@@ -72,6 +84,7 @@ async function rows(db: WorkspaceDb, table: string, cols: string, clientId: stri
     let q = db.from(table).select(cols).order(key, { ascending: true }).limit(PAGE_SIZE);
     if (last !== null) q = q.gt(key, last as string | number);
     const r = await q;
+    if (optional && page === 0 && r.error && missingTable(r.error)) return null;   // only "not applied", never any other error
     if (r.error || !Array.isArray(r.data)) throw new Error(`${table} could not be read`);
     if (r.data.length === 0) return all;
     /* Each page must continue strictly after the cursor, in key order; otherwise paging cannot be trusted. */
@@ -86,11 +99,12 @@ async function rows(db: WorkspaceDb, table: string, cols: string, clientId: stri
 }
 
 export async function loadWorkspace(db: WorkspaceDb, clientId: string): Promise<Workspace> {
-  const [roleRows, personRows, subRows, eventRows] = await Promise.all([
+  const [roleRows, personRows, subRows, eventRows, noteRows] = await Promise.all([
     rows(db, "roles", "id, client_id, title, location, status, opened_on, recruiter_name", clientId),
     rows(db, "people", "id, client_id, name, headline, location", clientId),
     rows(db, "submissions", "id, client_id, role_id, person_id, stage, shared_on, publication, version", clientId),
     rows(db, "submission_events", "id, submission_id, client_id, submission_version, kind, to_stage, occurred_on, actor_kind, actor_member_id", clientId),
+    rows(db, "client_notes", "id, client_id, submission_id, event_id, kind, about, text, category, author_member_id, created_at", clientId, "id", true),
   ]);
   const roles = roleRows.map((r) => ({ id: text(r, "id"), title: text(r, "title"), location: text(r, "location", true), status: oneOf(r, "status", STATUSES),
     openedOn: date(r, "opened_on"), recruiterName: text(r, "recruiter_name", true) }));
@@ -107,16 +121,33 @@ export async function loadWorkspace(db: WorkspaceDb, clientId: string): Promise<
   const events: DbEvent[] = eventRows.map((e) => {
     if (!Number.isInteger(e.submission_version) || (e.submission_version as number) < 1) throw new Bad("unexpected history version");
     const actorMemberId = e.actor_member_id === null || e.actor_member_id === undefined ? null : text(e, "actor_member_id");
-    const ev: DbEvent = { submissionId: text(e, "submission_id"), version: e.submission_version as number, kind: oneOf(e, "kind", ["shared", "stage_move"] as const),
+    if (!Number.isInteger(e.id)) throw new Bad("history entry without an id");
+    const ev: DbEvent = { id: e.id as number, submissionId: text(e, "submission_id"), version: e.submission_version as number, kind: oneOf(e, "kind", ["shared", "stage_move", "decline", "feedback"] as const),
       toStage: oneOf(e, "to_stage", ALL_STAGES), occurredOn: date(e, "occurred_on"), actorKind: oneOf(e, "actor_kind", ["client", "revenue_optics"] as const), actorMemberId };
     if (!subIds.has(ev.submissionId)) throw new Bad("history for a submission that was not returned");
     if (ev.actorMemberId && ev.actorKind !== "client") throw new Bad("a Revenue Optics entry with a client member");
+    if ((ev.kind === "decline" || ev.kind === "feedback") && (ev.actorKind !== "client" || !ev.actorMemberId)) throw new Bad("a client decision without its member");
+    if (ev.kind === "decline" && ev.toStage !== "Declined") throw new Bad("a decline that is not to Declined");
     const k = `${ev.submissionId}:${ev.version}`;
     if (seen.has(k)) throw new Bad("two history entries with the same version");
     seen.add(k);
     return ev;
   }).sort((a, b) => (a.submissionId < b.submissionId ? -1 : a.submissionId > b.submissionId ? 1 : a.version - b.version));
-  const moves = events.filter((e) => e.kind === "stage_move").map((e) => ({ submissionId: e.submissionId, toStage: e.toStage, occurredOn: e.occurredOn }));
+  /* For the reports, as in 2h: a decline is a move to Declined; feedback is not a move. */
+  const moves = events.filter((e) => e.kind === "stage_move" || e.kind === "decline").map((e) => ({ submissionId: e.submissionId, toStage: e.toStage, occurredOn: e.occurredOn }));
+  const byId = new Map(events.map((e) => [e.id, e])), noted = new Set<number>();
+  const notes: DbNote[] | null = noteRows === null ? null : noteRows.map((n) => {
+    const note: DbNote = { id: text(n, "id"), submissionId: text(n, "submission_id"), eventId: n.event_id as number, kind: oneOf(n, "kind", ["decline", "feedback"] as const),
+      about: n.about === null ? null : text(n, "about"), text: text(n, "text"), category: n.category === null ? null : text(n, "category"),
+      authorMemberId: text(n, "author_member_id"), createdAt: text(n, "created_at") };
+    /* The database ties each note to its own history entry; check it here too rather than show a note out of place. */
+    const e = byId.get(note.eventId);
+    if (!e || e.submissionId !== note.submissionId || e.kind !== note.kind || e.actorMemberId !== note.authorMemberId) throw new Bad("a note that does not match its history entry");
+    if (noted.has(note.eventId)) throw new Bad("two notes for one history entry");
+    if ((note.kind === "decline" && note.about !== null) || (note.kind === "feedback" && note.category !== null)) throw new Bad("unexpected note field");
+    noted.add(note.eventId);
+    return note;
+  });
   return {
     clientId,
     roles: roles.sort((a, b) => a.title.localeCompare(b.title)),
@@ -124,6 +155,7 @@ export async function loadWorkspace(db: WorkspaceDb, clientId: string): Promise<
     subs: subs.sort((a, b) => (a.sharedOn < b.sharedOn ? 1 : a.sharedOn > b.sharedOn ? -1 : people.get(a.personId)!.name.localeCompare(people.get(b.personId)!.name))),
     moves,
     events,
+    notes,
   };
 }
 

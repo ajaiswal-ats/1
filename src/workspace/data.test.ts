@@ -64,6 +64,43 @@ describe("loadWorkspace", () => {
   });
 });
 
+describe("client notes (milestone 2)", () => {
+  const withNotes = () => {
+    const t = base() as ReturnType<typeof base> & { client_notes: Record<string, unknown>[] };
+    t.submission_events.push({ id: 4, submission_id: "s1", client_id: C, submission_version: 3, kind: "feedback", to_stage: "Interview", occurred_on: "2026-10-11", actor_kind: "client", actor_member_id: "m-me" });
+    t.client_notes = [{ id: "n1", client_id: C, submission_id: "s1", event_id: 4, kind: "feedback", about: null, text: "Strong.", category: null, author_member_id: "m-me", created_at: "2026-10-11T09:00:00Z" }];
+    return t;
+  };
+  const load = (t: Record<string, unknown>, errors: Record<string, unknown> = {}) => loadWorkspace(fakeDb(t as Record<string, Record<string, unknown>[]>, { errors }).db, C);
+  it("loads notes tied to their history entry; a decline counts as a move for the reports, feedback does not", async () => {
+    const t = withNotes();
+    t.submission_events.push({ id: 5, submission_id: "s2", client_id: C, submission_version: 2, kind: "decline", to_stage: "Declined", occurred_on: "2026-10-11", actor_kind: "client", actor_member_id: "m-me" });
+    t.submissions[1].stage = "Declined"; t.submissions[1].version = 2;
+    const ws = await load(t);
+    expect(ws.notes).toEqual([{ id: "n1", submissionId: "s1", eventId: 4, kind: "feedback", about: null, text: "Strong.", category: null, authorMemberId: "m-me", createdAt: "2026-10-11T09:00:00Z" }]);
+    expect(ws.moves.map((m) => m.toStage)).toEqual(["Interview", "Declined", "Declined"]);
+  });
+  it("a note that does not match its history entry, or a second note for one entry, stops the load", async () => {
+    for (const [label, change] of [
+      ["other submission", (t: ReturnType<typeof withNotes>) => { t.client_notes[0].submission_id = "s3"; }],
+      ["other kind", (t: ReturnType<typeof withNotes>) => { t.client_notes[0].kind = "decline"; }],
+      ["other author", (t: ReturnType<typeof withNotes>) => { t.client_notes[0].author_member_id = "m-other"; }],
+      ["no such entry", (t: ReturnType<typeof withNotes>) => { t.client_notes[0].event_id = 99; }],
+      ["two notes for one entry", (t: ReturnType<typeof withNotes>) => { t.client_notes.push({ ...t.client_notes[0], id: "n2" }); }],
+      ["a decline not to Declined", (t: ReturnType<typeof withNotes>) => { t.submission_events.push({ id: 6, submission_id: "s3", client_id: C, submission_version: 3, kind: "decline", to_stage: "Offer", occurred_on: "2026-10-11", actor_kind: "client", actor_member_id: "m-me" }); }],
+      ["a decision without its member", (t: ReturnType<typeof withNotes>) => { t.submission_events[3].actor_member_id = null; }],
+    ] as const) {
+      const t = withNotes(); change(t);
+      await expect(load(t), label).rejects.toThrow();
+    }
+  });
+  it("only a missing client_notes table means 'not applied'; any other error still fails the load", async () => {
+    expect((await load(base(), { client_notes: { code: "PGRST205", message: "Could not find the table" } })).notes).toBeNull();
+    expect((await load(base(), { client_notes: { code: "42P01" } })).notes).toBeNull();
+    await expect(load(base(), { client_notes: { code: "42501", message: "permission denied" } })).rejects.toThrow(/client_notes could not be read/);
+  });
+});
+
 describe("derived counts", () => {
   it("role rows: shared, per stage (To review … Declined), last 7 days", async () => {
     const ws = await loadWorkspace(db(base()), C), [buyer, lead] = ws.roles;

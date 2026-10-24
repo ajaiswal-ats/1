@@ -27,11 +27,12 @@ const WS: Workspace = {
   ],
   moves: [{ submissionId: "s1", toStage: "Interview", occurredOn: "2026-10-10" }],
   events: [
-    { submissionId: "s1", version: 1, kind: "shared", toStage: "To review", occurredOn: "2026-10-08", actorKind: "revenue_optics", actorMemberId: null },
-    { submissionId: "s1", version: 2, kind: "stage_move", toStage: "Interview", occurredOn: "2026-10-10", actorKind: "client", actorMemberId: "m-me" },
-    { submissionId: "s2", version: 1, kind: "shared", toStage: "To review", occurredOn: "2026-09-20", actorKind: "revenue_optics", actorMemberId: null },
-    { submissionId: "s3", version: 1, kind: "shared", toStage: "To review", occurredOn: "2026-10-08", actorKind: "revenue_optics", actorMemberId: null },
+    { id: 1, submissionId: "s1", version: 1, kind: "shared", toStage: "To review", occurredOn: "2026-10-08", actorKind: "revenue_optics", actorMemberId: null },
+    { id: 2, submissionId: "s1", version: 2, kind: "stage_move", toStage: "Interview", occurredOn: "2026-10-10", actorKind: "client", actorMemberId: "m-me" },
+    { id: 3, submissionId: "s2", version: 1, kind: "shared", toStage: "To review", occurredOn: "2026-09-20", actorKind: "revenue_optics", actorMemberId: null },
+    { id: 4, submissionId: "s3", version: 1, kind: "shared", toStage: "To review", occurredOn: "2026-10-08", actorKind: "revenue_optics", actorMemberId: null },
   ],
+  notes: [],
 };
 const ready: WorkspaceState = { status: "ready", key: "u1:c1", ws: WS };
 const page = (route: string, state: WorkspaceState = ready) => renderToStaticMarkup(<WorkspacePage route={route} state={state} onRetry={() => {}} today="2026-10-12" />);
@@ -72,21 +73,31 @@ describe("Candidates (database)", () => {
     expect(h).toMatch(/disabled="" aria-disabled="true" title="Not connected yet">Waiting on you/);
     expect(h).toContain("Next steps, requirement evidence and interviews are not connected yet.");
   });
-  it("a candidate page shows database fields; decline and feedback are disabled", () => {
-    const h = page("c-s1");
+  it("a candidate page shows database fields; decline and feedback follow the provisional rules", () => {
+    const h = page("c-s1");                                     // Interview, open role
     expect(h).toContain("<h1>Jo Doe</h1>");
     expect(h).toContain("for <a href=\"#role-r1\">Warehouse Lead</a>");
     expect(h).toContain("<span>Shared 8 Oct</span>");
-    expect(h).toMatch(/<button type="button" class="btn btn-d btn-off" disabled="" title="Not available yet">Decline<\/button>/);
-    expect(h).toMatch(/disabled="" title="Not available yet">Share interview feedback<\/button>/);
+    expect(h).toMatch(/<button type="button" class="btn btn-d" data-form="decline">Decline<\/button>/);
+    expect(h).toMatch(/<button type="button" class="btn btn-s" data-form="feedback">Share interview feedback<\/button>/);
     expect(h).toContain("Manatal is not updated");
+    expect(h).toContain("Who may act, and when, is provisional.");
+    const onHold = page("c-s2");                                // To review, on-hold role: neither
+    expect(onHold).toMatch(/class="btn btn-d btn-off" data-form="decline" disabled="" title="Not available for this stage or role \(provisional rules\)"/);
+    expect(onHold).toMatch(/class="btn btn-s btn-off" data-form="feedback" disabled=""/);
     expect(page("c-unknown")).toContain("Candidate not found.");
+  });
+  it("without client notes on the database (milestone 2 not applied), decisions are unavailable and say so", () => {
+    const h = page("c-s1", { status: "ready", key: "u1:c1", ws: { ...WS, notes: null } });
+    expect(h).toContain("Decline and interview feedback are not available on this database yet.");
+    expect(h).toMatch(/data-form="decline" disabled="" title="Not available on this database yet"/);
   });
   it("stage choices follow the provisional rule: open role, not from Offer/Hired/Declined, Offer and Hired marked provisional", () => {
     const h = page("c-s1");                                     // Interview, open role
     expect(h).toContain('<option value="To review" selected="">To review</option><option value="Offer">Offer (provisional)</option><option value="Hired">Hired (provisional)</option>');
     expect(page("c-s2")).toContain("This role is on hold, so stage changes are paused.");
-    expect(page("c-s3")).toContain("Stage changes from Declined are not available in this version.");
+    expect(page("c-s3")).toContain("Declined for this role. The note is in Notes and history.");
+    expect(page("c-s3")).not.toMatch(/You declined/);
     expect(page("c-s2")).not.toContain('id="mv"');
   });
   it("the lists and the other pages have no action controls, and no page shows a demo value", () => {
@@ -100,7 +111,7 @@ describe("Candidates (database)", () => {
 
 describe("candidate history (read-only, from submission events)", () => {
   const sub = (over = {}) => ({ id: "s1", roleId: "r1", personId: "p1", stage: "Offer" as const, sharedOn: "2026-10-01", version: 4, ...over });
-  const ev = (version: number, o: Partial<DbEvent>): DbEvent => ({ submissionId: "s1", version, kind: "stage_move", toStage: "Interview", occurredOn: `2026-10-0${version}`, actorKind: "client", actorMemberId: null, ...o });
+  const ev = (version: number, o: Partial<DbEvent>): DbEvent => ({ id: version, submissionId: "s1", version, kind: "stage_move", toStage: "Interview", occurredOn: `2026-10-0${version}`, actorKind: "client", actorMemberId: null, ...o });
   const wsWith = (events: DbEvent[]) => ({ ...WS, events });
   const all = [ev(1, { kind: "shared", toStage: "To review", actorKind: "revenue_optics" }), ev(2, { actorMemberId: "m-me" }), ev(3, { toStage: "Offer", actorMemberId: "m-other" }), ev(4, { toStage: "Offer", actorKind: "revenue_optics" })];
 
@@ -116,7 +127,7 @@ describe("candidate history (read-only, from submission events)", () => {
     const html = renderToStaticMarkup(<History ws={wsWith([all[2], all[0], all[3], all[1]])} sub={sub()} memberId="m-me" />);
     const lines = [...html.matchAll(/<li><span class="t">([^<]+)<\/span><span>([^<]+)<\/span><\/li>/g)].map((m) => `${m[1]} ${m[2]}`);
     expect(lines).toEqual(["4 Oct Revenue Optics moved Jo to Offer", "3 Oct Client team moved Jo to Offer", "2 Oct You moved Jo to Interview", "1 Oct Revenue Optics shared Jo for this role"]);
-    expect(html).toContain("Notes are not connected yet.");
+    expect(html).toContain("No notes yet.");
   });
   it("says what is missing rather than inventing it", () => {
     const gap = history(wsWith([all[0], all[3]]), sub(), "m-me");
@@ -128,6 +139,21 @@ describe("candidate history (read-only, from submission events)", () => {
     expect(none).toContain("1 change is not shown");
     expect(history(wsWith(all), sub({ version: 3 }), "m-me").beyondCurrent).toBe(true);
     expect(renderToStaticMarkup(<History ws={wsWith(all)} sub={sub({ version: 3 })} memberId="m-me" />)).toContain("Reload the page to see the latest stage.");
+  });
+  it("notes: decline note with its category, feedback with its subject; 'You' only for the member's own", () => {
+    const notes = [
+      { id: "n1", submissionId: "s1", eventId: 3, kind: "feedback" as const, about: "Panel on 9 Oct", text: "Strong on process.", category: null, authorMemberId: "m-other", createdAt: "2026-10-03T10:00:00Z" },
+      { id: "n2", submissionId: "s1", eventId: 5, kind: "decline" as const, about: null, text: "Not enough CRM depth.", category: null, authorMemberId: "m-me", createdAt: "2026-10-05T10:00:00Z" },
+    ];
+    const html = renderToStaticMarkup(<History ws={{ ...wsWith(all), notes }} sub={sub()} memberId="m-me" />);
+    expect(html).toContain('<b>Interview feedback</b> <span class="xs muted">about Panel on 9 Oct</span><p style="margin:6px 0 0;white-space:pre-wrap">Strong on process.</p><p class="xs muted" style="margin:6px 0 0">Client team · 3 Oct</p>');
+    expect(html).toContain('<b>Decline note</b> <span class="chip c-mute">No category</span><p style="margin:6px 0 0;white-space:pre-wrap">Not enough CRM depth.</p><p class="xs muted" style="margin:6px 0 0">You · 5 Oct</p>');
+    expect(html.indexOf("Interview feedback")).toBeLessThan(html.indexOf("Decline note"));     // oldest first, as 2h adds them
+    expect(renderToStaticMarkup(<History ws={{ ...wsWith(all), notes: null }} sub={sub()} memberId="m-me" />)).toContain("Notes are not available on this database yet.");
+  });
+  it("history wording for decisions", () => {
+    expect(historyText({ version: 3, date: "2026-10-03", actor: "Client team", kind: "feedback", toStage: "Interview" }, "Jo")).toBe("Client team shared interview feedback");
+    expect(historyText({ version: 4, date: "2026-10-04", actor: "You", kind: "decline", toStage: "Declined" }, "Jo")).toBe("You declined Jo");
   });
   it("declines read as declines", () => {
     expect(historyText({ version: 2, date: "2026-10-02", actor: "Client team", kind: "stage_move", toStage: "Declined" }, "Jo")).toBe("Client team declined Jo");

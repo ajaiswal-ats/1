@@ -14,7 +14,7 @@ export const PASSWORDS = { harbor: "offline-pw-harbor", northwind: "offline-pw-n
 const EMAILS = { harbor: "portal-test-harbor@example.com", northwind: "portal-test-northwind@example.com", harborInactive: "portal-test-harbor-inactive@example.com", noMembership: "portal-test-no-membership@example.com" };
 
 /** `maxRows`: the server's row cap per request, like Supabase's "Max rows" (1,000 by default). */
-export async function createProject({ maxRows = 1000 } = {}) {
+export async function createProject({ maxRows = 1000, m2 = true } = {}) {
   const db = new PGlite();
   await db.exec(`
     create role anon nologin; create role authenticated nologin; create role service_role nologin;
@@ -29,6 +29,7 @@ export async function createProject({ maxRows = 1000 } = {}) {
     alter default privileges in schema public grant all on functions to anon, authenticated;
     alter default privileges in schema public grant all on sequences to anon, authenticated;`);
   await db.exec(read("supabase/migrations/20261023120000_m1_tenancy_stage_events.sql"));
+  if (m2) await db.exec(read("supabase/migrations/20261025120000_m2_decline_feedback.sql"));
   await db.exec(read("supabase/seed/m1_fictional.sql"));
   await db.exec(`insert into auth.users (email, email_confirmed_at) select e, now() from unnest(array[${Object.values(EMAILS).map((e) => `'${e}'`).join(",")}]) e`);
   await db.exec(read("supabase/seed/m1_memberships.sql"));
@@ -91,9 +92,15 @@ function makeFetch(db, ids, maxRows) {
         const r = await asUser(db, sub, `select coalesce(json_agg(t), '[]')::text as j from (select ${cols.join(", ")} from public.${name}${where}${tail}) t`, params);
         return reply(200, r.rows[0].j);
       }
-      if (method === "POST" && name === "rpc/client_move_stage") {
-        const b = JSON.parse(init.body);
-        const r = await asUser(db, sub, "select public.client_move_stage($1, $2, $3, $4)::text as j", [b.p_submission_id, b.p_to_stage, b.p_expected_version, b.p_idempotency_key]);
+      const RPCS = {
+        client_move_stage: ["p_submission_id", "p_to_stage", "p_expected_version", "p_idempotency_key"],
+        client_decline: ["p_submission_id", "p_note", "p_category", "p_expected_version", "p_idempotency_key"],
+        client_add_feedback: ["p_submission_id", "p_about", "p_text", "p_expected_version", "p_idempotency_key"],
+      };
+      const fn = name.startsWith("rpc/") ? name.slice(4) : null;
+      if (method === "POST" && fn && RPCS[fn]) {
+        const b = JSON.parse(init.body), args = RPCS[fn];
+        const r = await asUser(db, sub, `select public.${fn}(${args.map((_, i) => `$${i + 1}`).join(", ")})::text as j`, args.map((a) => b[a] ?? null));
         return reply(200, r.rows[0].j);
       }
       if (method === "PATCH" && name === "submissions") {
@@ -113,6 +120,7 @@ function makeFetch(db, ids, maxRows) {
 /** Everything the restore must leave exactly as it was (or put back), as one comparable JSON value. */
 export async function snapshot(db) {
   const tables = ["public.clients", "public.client_members", "public.roles", "public.people", "public.submissions", "public.submission_events", "app_private.idempotency_keys"];
+  if ((await db.query("select to_regclass('public.client_notes') is not null as m2")).rows[0].m2) tables.push("public.client_notes");
   const out = {};
   for (const t of tables) out[t] = (await db.query(`select coalesce(json_agg(t order by t::text), '[]')::text as j from ${t} t`)).rows[0].j;
   return out;

@@ -6,7 +6,7 @@ import { describe, expect, it } from "vitest";
 import { cleanEntry, createRunFile, isLocalRequest } from "./move-record-lib.mjs";
 
 const KEY = "0b0a3f5e-8f4c-4c38-9a77-1d2b3c4d5e6f", SUB = "8edf003b-eec6-0899-c724-5047e76ef68f";
-const sent = { phase: "sent", key: KEY, submission_id: SUB, expected_version: 1, seen_stage: "To review", to_stage: "Interview", attempt: 0 };
+const sent = { phase: "sent", action: "move", key: KEY, submission_id: SUB, expected_version: 1, seen_stage: "To review", to_stage: "Interview", attempt: 0 };
 
 describe("record entries", () => {
   it("keeps exactly the allowed fields, with a server time", () => {
@@ -16,7 +16,8 @@ describe("record entries", () => {
   });
   it("rejects anything else, including an entry carrying a token or password", () => {
     const bad = [
-      { ...sent, access_token: "eyJhbGciOi" }, { ...sent, password: "x" }, { ...sent, key: "not-a-uuid" }, { ...sent, submission_id: "s11" },
+      { ...sent, access_token: "eyJhbGciOi" }, { ...sent, password: "x" }, { ...sent, note: "Not enough CRM depth" }, { ...sent, text: "feedback" },
+      { ...sent, action: "delete" }, (({ action, ...x }) => x)(sent), { ...sent, key: "not-a-uuid" }, { ...sent, submission_id: "s11" },
       { ...sent, to_stage: "Shortlisted" }, { ...sent, seen_stage: undefined }, { ...sent, expected_version: 0 }, { ...sent, attempt: -1 },
       { phase: "outcome", key: KEY, submission_id: SUB, outcome: "ok; drop table" }, { phase: "other" }, null, [], "text",
     ];

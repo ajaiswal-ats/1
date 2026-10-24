@@ -19,9 +19,10 @@ declare
     -- ---------- Before the tests, as the database owner ----------
     ['owner', 'Only the add-only trigger is attached to the application tables (no webhooks or other triggers)',
       $q$select count(*) from pg_trigger t where not t.tgisinternal and t.tgrelid in ('public.clients'::regclass, 'public.client_members'::regclass, 'public.roles'::regclass, 'public.people'::regclass, 'public.submissions'::regclass, 'public.submission_events'::regclass, 'app_private.idempotency_keys'::regclass)$q$, '1'],
-    ['owner', 'Row-level security is on for all 7 application tables and on every table in public and app_private',
+    ['owner', 'Row-level security is on for the 7 milestone 1 tables and on every table in public and app_private (later milestones add tables)',
       $q$select (select count(*) from pg_class c join pg_namespace n on n.oid = c.relnamespace where n.nspname in ('public', 'app_private') and c.relkind in ('r', 'p') and not c.relrowsecurity)
-              || '/' || (select count(*) from pg_class c join pg_namespace n on n.oid = c.relnamespace where n.nspname in ('public', 'app_private') and c.relkind in ('r', 'p') and c.relrowsecurity)$q$, '0/7'],
+              || '/' || (select count(*) from pg_class c where c.oid in ('public.clients'::regclass, 'public.client_members'::regclass, 'public.roles'::regclass, 'public.people'::regclass,
+                         'public.submissions'::regclass, 'public.submission_events'::regclass, 'app_private.idempotency_keys'::regclass) and c.relrowsecurity)$q$, '0/7'],
 
     -- ---------- Signed out (anon) ----------
     ['anon', 'Signed out: cannot read clients',            $q$select count(*) from public.clients$q$, 'ERR 42501'],

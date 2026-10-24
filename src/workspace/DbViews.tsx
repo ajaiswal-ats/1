@@ -1,4 +1,4 @@
-import { Fragment, useState, type CSSProperties, type ReactNode } from "react";
+import { Fragment, useState, type CSSProperties, type FormEvent, type ReactNode } from "react";
 import { PinIcon } from "../components/icons";
 import type { Stage } from "../data/fixtures";
 import { STAGES } from "../domain/candidates";
@@ -7,7 +7,8 @@ import { navFor } from "../lib/route";
 import { Seg, plural, stageColor } from "../progress/shared";
 import { StatusChip } from "../roles/StatusChip";
 import { alsoFor, countByStage, forRole, history, person, roleFor, roleRow, uniquePeople, type DbRole, type DbSubmission, type HistoryEntry, type Workspace } from "./data";
-import { MOVE_MESSAGES, moveTargets, type MoveState, type MoveTarget } from "./moves";
+import { DECLINE_CATEGORIES } from "../domain/actions";
+import { MOVE_MESSAGES, canDecline, canGiveFeedback, moveTargets, type Intent, type MoveState, type MoveTarget } from "./moves";
 import type { WorkspaceState } from "./store";
 
 /* Supabase-mode pages, drawn only from the loaded workspace data with the reviewed markup and classes (2h). They do not use
@@ -16,13 +17,18 @@ import type { WorkspaceState } from "./store";
 
 const COLS: Stage[] = [...STAGES, "Declined"];
 const NA = <span className="muted" title="Not connected yet">—</span>;
-const ACTIONS_OFF = "Stage changes are on the candidate page; decline and feedback are not available yet.";
+const ACTIONS_OFF = "Stage changes, decline and interview feedback are on each candidate's page.";
 const initials = (name: string) => name.split(/\s+/).filter(Boolean).map((w) => w[0]).join("").slice(0, 2).toUpperCase();
 const year = (d: string) => d.slice(0, 4);
 
 /** Stage changes for the signed-in account: its key (moves for another account are ignored), the state and the actions. */
-export interface MovesProps { account: string; state: MoveState; move(sub: DbSubmission, to: MoveTarget, seen: { version: number; stage: Stage }): boolean; retry(): void; dismiss(): void }
-export const NO_MOVES: MovesProps = { account: "", state: { status: "idle" }, move: () => false, retry: () => {}, dismiss: () => {} };
+export interface MovesProps {
+  account: string; state: MoveState; retry(): void; dismiss(): void;
+  move(sub: DbSubmission, to: MoveTarget, seen: { version: number; stage: Stage }): boolean;
+  /** A client decision (decline or feedback), sent with the version and stage the user saw when opening the form. */
+  act(sub: DbSubmission, intent: Intent, seen: { version: number; stage: Stage }): boolean;
+}
+export const NO_MOVES: MovesProps = { account: "", state: { status: "idle" }, move: () => false, act: () => false, retry: () => {}, dismiss: () => {} };
 
 /** `memberId`: the signed-in member, so history can say "You" only for that member's own recorded changes. */
 export function WorkspacePage({ route, state, onRetry, today, moves = NO_MOVES, memberId = "" }: { route: string; state: WorkspaceState; onRetry(): void; today: string; moves?: MovesProps; memberId?: string }) {
@@ -254,12 +260,7 @@ function CandidateDetail({ ws, id, moves, memberId }: { ws: Workspace; id: strin
         <aside className="card act" aria-label="Next step"><div className="pad">
           <h2>Next step</h2>
           <dl className="statusdl"><dt>Stage</dt><dd>{c.stage}</dd>{r.recruiterName && <><dt>Recruiter</dt><dd>{`${r.recruiterName}, Revenue Optics`}</dd></>}</dl>
-          <MovePanel key={c.id} sub={c} role={r} moves={moves} />
-          <div className="abtns" style={{ marginTop: 12 }}>
-            <button type="button" className="btn btn-d btn-off" disabled title="Not available yet">Decline</button>
-            <button type="button" className="btn btn-s btn-off" disabled title="Not available yet">Share interview feedback</button>
-          </div>
-          <p className="small muted">Decline and interview feedback are not available yet.</p>
+          <ActionPanel key={c.id} sub={c} role={r} moves={moves} decisions={ws.notes !== null} />
           <p className="mock">{NOT_NOTIFIED}</p>
         </div></aside>
       </div>
@@ -270,6 +271,7 @@ function CandidateDetail({ ws, id, moves, memberId }: { ws: Workspace; id: strin
 /** One history line, in 2h's wording: "Revenue Optics shared Priya for this role", "You moved Priya to Interview". */
 export function historyText(e: HistoryEntry, firstName: string) {
   if (e.kind === "shared") return `${e.actor} shared ${firstName} for this role`;
+  if (e.kind === "feedback") return `${e.actor} shared interview feedback`;
   return e.toStage === "Declined" ? `${e.actor} declined ${firstName}` : `${e.actor} moved ${firstName} to ${e.toStage}`;
 }
 
@@ -277,8 +279,8 @@ export function History({ ws, sub, memberId }: { ws: Workspace; sub: DbSubmissio
   const first = person(ws, sub).name.split(/\s+/)[0], h = history(ws, sub, memberId);
   return (
     <>
-      <div className="sec-h"><h2>Your notes on this candidate</h2></div>
-      <p className="muted small">Notes are not connected yet.</p>
+      <div className="sec-h"><h2>Your notes on this candidate</h2><span className="xs muted">Not shared with the candidate.</span></div>
+      <Notes ws={ws} sub={sub} memberId={memberId} />
       <h2 style={{ margin: "22px 0 8px" }}>History</h2>
       {h.entries.length
         ? <ol className="hist">{h.entries.slice().reverse().map((e) => <li key={e.version}><span className="t">{fd(e.date)}</span><span>{historyText(e, first)}</span></li>)}</ol>
@@ -290,19 +292,44 @@ export function History({ ws, sub, memberId }: { ws: Workspace; sub: DbSubmissio
   );
 }
 
-const NOT_NOTIFIED = "Development: a stage change is saved in the portal database only. Your recruiter is not notified automatically, and Manatal is not updated. Neither is connected yet.";
+/** Decline notes and interview feedback, in 2h's note boxes; "You" only for the signed-in member's own notes. */
+function Notes({ ws, sub, memberId }: { ws: Workspace; sub: DbSubmission; memberId: string }) {
+  if (ws.notes === null) return <p className="muted small">Notes are not available on this database yet.</p>;
+  const mine = ws.notes.filter((n) => n.submissionId === sub.id).sort((a, b) => (a.createdAt < b.createdAt ? -1 : a.createdAt > b.createdAt ? 1 : 0));
+  if (!mine.length) return <p className="muted small">No notes yet. Notes you add with a decision or after an interview appear here.</p>;
+  const by = (n: (typeof mine)[number]) => <p className="xs muted" style={{ margin: "6px 0 0" }}>{`${n.authorMemberId === memberId && memberId !== "" ? "You" : "Client team"} · ${fd(n.createdAt.slice(0, 10))}`}</p>;
+  return (
+    <>
+      {mine.map((n) => (
+        <div key={n.id} className="box" style={{ marginBottom: 10 }}>
+          {n.kind === "decline"
+            ? <><b>Decline note</b> <span className="chip c-mute">{n.category ?? "No category"}</span></>
+            : <><b>Interview feedback</b>{n.about && <> <span className="xs muted">{`about ${n.about}`}</span></>}</>}
+          <p style={{ margin: "6px 0 0", whiteSpace: "pre-wrap" }}>{n.text}</p>{by(n)}
+        </div>
+      ))}
+    </>
+  );
+}
 
-/** The stage-change part of the Next step panel: choose, confirm, then the server's answer. */
-function MovePanel({ sub, role, moves }: { sub: DbSubmission; role: DbRole; moves: MovesProps }) {
+const NOT_NOTIFIED = "Development: stage changes and decisions are saved in the portal database only. Your recruiter is not notified automatically, and Manatal is not updated: neither is connected. Who may act, and when, is provisional.";
+const SAVED_SUB = "Confirmed by the server and saved in the portal database. Lists and counts are refreshed. Nobody is notified and Manatal is not updated.";
+
+type Form = { kind: "move"; to: MoveTarget; version: number; stage: Stage } | { kind: "decline" | "feedback"; version: number; stage: Stage };
+const label = (r: { action?: string; toStage: string }) => (r.action === "decline" ? "decline" : r.action === "feedback" ? "interview feedback" : `move to ${r.toStage}`);
+
+/** The Next step panel's actions: stage change, decline and interview feedback; choose, confirm, then the server's answer.
+    Which actions are offered follows the PROVISIONAL development rules (moves.ts); the server decides. */
+function ActionPanel({ sub, role, moves, decisions }: { sub: DbSubmission; role: DbRole; moves: MovesProps; decisions: boolean }) {
   const targets = moveTargets(sub, role), [choice, setChoice] = useState<MoveTarget | "">("");
-  /* The version the user is looking at when they open the form is the one sent: a change in between is a conflict. */
-  const [form, setForm] = useState<{ to: MoveTarget; version: number; stage: Stage } | null>(null);
+  /* The version and stage the user is looking at when they open a form are the ones sent: a change in between is a conflict. */
+  const [form, setForm] = useState<Form | null>(null);
   const m = moves.state, mine = m.status !== "idle" && m.account === moves.account, here = mine && ("request" in m ? m.request.submissionId : m.submissionId) === sub.id;
 
-  if (here && m.status === "saving") return <div className="nextbox ro" role="status"><b>{`Saving the move to ${m.request.toStage}…`}</b><span className="small">{m.attempt > 0 ? "No answer yet: asking the server again with the same request." : "Waiting for the server to confirm."}</span></div>;
+  if (here && m.status === "saving") return <div className="nextbox ro" role="status"><b>{`Saving the ${label(m.request)}…`}</b><span className="small">{m.attempt > 0 ? "No answer yet: asking the server again with the same request." : "Waiting for the server to confirm."}</span></div>;
   if (here && m.status === "uncertain") return (
     <div role="alert">
-      <div className="nextbox you"><b>{`The move to ${m.request.toStage} could not be confirmed`}</b><span className="small">The server did not answer, so it may or may not have been saved. Checking again sends the same request; it cannot be saved twice.</span></div>
+      <div className="nextbox you"><b>{`The ${label(m.request)} could not be confirmed`}</b><span className="small">The server did not answer, so it may or may not have been saved. Checking again sends the same request; it cannot be saved twice.</span></div>
       <div className="row" style={{ display: "flex", gap: 8, marginTop: 8 }}>
         <button type="button" className="btn btn-p btn-sm" onClick={moves.retry}>Check again</button>
         <button type="button" className="btn btn-s btn-sm" onClick={moves.dismiss}>Show the latest information</button>
@@ -311,7 +338,10 @@ function MovePanel({ sub, role, moves }: { sub: DbSubmission; role: DbRole; move
   );
   if (here && m.status === "saved") return (
     <>
-      <div className="nextbox done" role="status" style={{ marginBottom: 4 }}><b>{`Stage saved: ${m.toStage}`}</b><span className="small">Confirmed by the server and saved in the portal database. Lists and counts are refreshed. Nobody is notified and Manatal is not updated.</span></div>
+      <div className="nextbox done" role="status" style={{ marginBottom: 4 }}>
+        <b>{m.action === "decline" ? "Declined for this role" : m.action === "feedback" ? "Feedback saved" : `Stage saved: ${m.toStage}`}</b>
+        <span className="small">{m.action === "feedback" ? `Stage unchanged. ${SAVED_SUB}` : SAVED_SUB}</span>
+      </div>
       <div style={{ display: "flex", gap: 8 }}><a className="btn btn-p" href="#candidates" onClick={moves.dismiss}>Back to pipeline</a><button type="button" className="btn btn-s" onClick={moves.dismiss}>Done</button></div>
     </>
   );
@@ -321,10 +351,9 @@ function MovePanel({ sub, role, moves }: { sub: DbSubmission; role: DbRole; move
   if (here && m.status === "failed") return (
     <div role="alert"><div className="err">{m.message}</div><button type="button" className="btn btn-s btn-sm" style={{ marginTop: 8 }} onClick={moves.dismiss}>OK</button></div>
   );
-  if (mine && (m.status === "saving" || m.status === "uncertain")) return <p className="small muted">Another stage change is still being saved or confirmed. Finish it first.</p>;
+  if (mine && (m.status === "saving" || m.status === "uncertain")) return <p className="small muted">Another change is still being saved or confirmed. Finish it first.</p>;
 
-  if (!targets.length) return <p className="small muted">{role.status !== "Open" ? `This role is ${role.status.toLowerCase()}, so stage changes are paused.` : `Stage changes from ${sub.stage} are not available in this version.`}</p>;
-  if (form) {
+  if (form?.kind === "move") {
     const big = form.to === "Offer" || form.to === "Hired";
     return (
       <form className="form" id="moveForm" onSubmit={(e) => { e.preventDefault(); if (moves.move(sub, form.to, { version: form.version, stage: form.stage })) setForm(null); }}>
@@ -335,16 +364,56 @@ function MovePanel({ sub, role, moves }: { sub: DbSubmission; role: DbRole; move
       </form>
     );
   }
-  const to = (choice || targets[0]) as MoveTarget;
+  if (form) return <DecisionForm form={form} roleTitle={role.title} onCancel={() => setForm(null)} onSubmit={(intent) => { if (moves.act(sub, intent, { version: form.version, stage: form.stage })) setForm(null); }} />;
+
+  const decline = decisions && canDecline(sub, role), feedback = decisions && canGiveFeedback(sub, role), to = (choice || targets[0]) as MoveTarget;
+  const why = !decisions ? "Not available on this database yet" : "Not available for this stage or role (provisional rules)";
   return (
     <>
-      <label className="small" htmlFor="mv" style={{ display: "block", fontWeight: 600, marginTop: 4 }}>Move to another stage</label>
-      <div style={{ display: "flex", gap: 8 }}>
-        <select id="mv" className="sel" style={{ minWidth: 0, flex: 1 }} value={to} onChange={(e) => setChoice(e.target.value as MoveTarget)}>
-          {targets.map((s) => <option key={s} value={s}>{s === "Offer" || s === "Hired" ? `${s} (provisional)` : s}</option>)}
-        </select>
-        <button type="button" className="btn btn-s btn-sm" data-form="move" onClick={() => setForm({ to, version: sub.version, stage: sub.stage })}>Continue</button>
+      {sub.stage === "Declined" && <p className="small muted">Declined for this role. The note is in Notes and history.</p>}
+      {targets.length > 0 ? <>
+        <label className="small" htmlFor="mv" style={{ display: "block", fontWeight: 600, marginTop: 4 }}>Move to another stage</label>
+        <div style={{ display: "flex", gap: 8 }}>
+          <select id="mv" className="sel" style={{ minWidth: 0, flex: 1 }} value={to} onChange={(e) => setChoice(e.target.value as MoveTarget)}>
+            {targets.map((s) => <option key={s} value={s}>{s === "Offer" || s === "Hired" ? `${s} (provisional)` : s}</option>)}
+          </select>
+          <button type="button" className="btn btn-s btn-sm" data-form="move" onClick={() => setForm({ kind: "move", to, version: sub.version, stage: sub.stage })}>Continue</button>
+        </div>
+      </> : sub.stage !== "Declined" && <p className="small muted">{role.status !== "Open" ? `This role is ${role.status.toLowerCase()}, so stage changes are paused.` : `Stage changes from ${sub.stage} are not available in this version.`}</p>}
+      <div className="abtns" style={{ marginTop: 12 }}>
+        <button type="button" className={`btn btn-d${decline ? "" : " btn-off"}`} data-form="decline" disabled={!decline} title={decline ? undefined : why}
+          onClick={() => setForm({ kind: "decline", version: sub.version, stage: sub.stage })}>Decline</button>
+        <button type="button" className={`btn btn-s${feedback ? "" : " btn-off"}`} data-form="feedback" disabled={!feedback} title={feedback ? undefined : why}
+          onClick={() => setForm({ kind: "feedback", version: sub.version, stage: sub.stage })}>Share interview feedback</button>
       </div>
+      {!decisions && <p className="small muted">Decline and interview feedback are not available on this database yet.</p>}
     </>
+  );
+}
+
+/** 2h's decline and interview-feedback forms (formHtml). The note is required; 2h's messages for an empty note. */
+function DecisionForm({ form, roleTitle, onCancel, onSubmit }: { form: { kind: "decline" | "feedback" }; roleTitle: string; onCancel(): void; onSubmit(i: Intent): void }) {
+  const [note, setNote] = useState(""), [cat, setCat] = useState(DECLINE_CATEGORIES[0]), [about, setAbout] = useState("General feedback"), [err, setErr] = useState<string | null>(null);
+  const submit = (e: FormEvent) => {
+    e.preventDefault();
+    if (!note.trim()) { setErr(form.kind === "decline" ? "Add a short note so the recruiter knows why." : "Add your feedback before sharing."); return; }
+    onSubmit(form.kind === "decline" ? { action: "decline", note: note.trim(), category: cat === "No category" ? null : cat } : { action: "feedback", about: about.trim() || null, text: note.trim() });
+  };
+  const error = err && <div className="err">{err}</div>;
+  const textarea = <textarea id="fNote" maxLength={1000} value={note} onChange={(e) => setNote(e.target.value)} />;
+  const buttons = (text: string, cls: string) => <div className="row"><button type="button" className="btn btn-s" data-cancel onClick={onCancel}>Cancel</button><button type="submit" className={`btn ${cls}`}>{text}</button></div>;
+  if (form.kind === "decline") return (
+    <form className="form" id="actForm" onSubmit={submit}><h3 style={{ marginBottom: 10 }}>{`Decline for ${roleTitle}`}</h3>
+      <div className="f"><label htmlFor="fNote">Decline note (required)</label>{textarea}{error}<div className="help">Keep to job-related points. Not shared with the candidate.</div></div>
+      <div className="f"><label htmlFor="fCat">Reason category (optional)</label><select id="fCat" value={cat} onChange={(e) => setCat(e.target.value)}>{DECLINE_CATEGORIES.map((x) => <option key={x}>{x}</option>)}</select></div>
+      {buttons("Decline", "btn-d")}
+    </form>
+  );
+  return (
+    <form className="form" id="actForm" onSubmit={submit}><h3 style={{ marginBottom: 10 }}>Interview feedback</h3>
+      <div className="f"><label htmlFor="fAbout">About</label><input id="fAbout" maxLength={120} value={about} onChange={(e) => setAbout(e.target.value)} /></div>
+      <div className="f"><label htmlFor="fNote">Your feedback (required)</label>{textarea}{error}<div className="help">Feedback does not change the stage.</div></div>
+      {buttons("Share feedback", "btn-p")}
+    </form>
   );
 }

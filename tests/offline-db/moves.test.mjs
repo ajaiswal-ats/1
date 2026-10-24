@@ -186,7 +186,7 @@ describe("cleanup after a manual UI test run, from its development test-run reco
 
   it("the cleanup is not generated from a record that touches a submission outside the fictional test set", async () => {
     const rec = recorder();
-    await rec.record({ phase: "sent", key: crypto.randomUUID(), submission_id: seedId("submission", "harbor", "so-pa"), expected_version: 2, seen_stage: "Interview", to_stage: "To review", attempt: 0 });
+    await rec.record({ phase: "sent", action: "move", key: crypto.randomUUID(), submission_id: seedId("submission", "harbor", "so-pa"), expected_version: 2, seen_stage: "Interview", to_stage: "To review", attempt: 0 });
     expect(() => uiRestoreSql(rec.run)).toThrow(/not a fictional test submission/);
   });
 });

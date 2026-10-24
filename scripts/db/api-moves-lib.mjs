@@ -17,6 +17,7 @@ export const TARGETS = {
   "pr-isl": { client: "harbor", stage: "To review", version: 1, moves: true },
   "tb-isl": { client: "harbor", stage: "To review", version: 1 },
   "tb-rsm": { client: "harbor", stage: "Interview", version: 2 },
+  "je-isl": { client: "harbor", stage: "Interview", version: 2 },
   "zz-isl": { client: "harbor", stage: "To review", version: 1, unpublished: true },
   "n1-ops": { client: "northwind", stage: "To review", version: 1 },
   "n2-ops": { client: "northwind", stage: "To review", version: 1, unpublished: true },
@@ -231,6 +232,7 @@ declare
   r record;
   n int;
   n_found int;
+  n_notes int := 0;
 begin
   if to_regclass('public.submission_events') is null then raise exception 'RESTORE REFUSED: milestone 1 tables not found. Nothing was changed.'; end if;
 
@@ -241,9 +243,10 @@ begin
 
   -- This run's writes, positively identified: key rows made by this run's requests, and the event each one points to.
   create temp table restore_found on commit drop as
-    select k.member_id, k.submission_id, k.key, (k.result->>'event_id')::bigint as event_id, (k.result->>'version')::int as version, k.result->>'stage' as stage
+    select k.member_id, k.action, k.submission_id, k.key, (k.result->>'event_id')::bigint as event_id, (k.result->>'version')::int as version,
+           k.result->>'stage' as stage, (k.result->>'note_id')::uuid as note_id
       from app_private.idempotency_keys k join restore_keys rk on rk.key = k.key and rk.submission_id = k.submission_id
-     where k.action = 'move_stage';
+     where k.action in ('move_stage', 'decline', 'feedback');
   select count(*) into n_found from restore_found;
 
   for r in select f.*, b.ref from restore_found f left join restore_baseline b using (submission_id) loop
@@ -254,10 +257,30 @@ begin
     end if;
     if not exists (select 1 from public.submission_events e
                     where e.id = r.event_id and e.submission_id = r.submission_id and e.submission_version = r.version and e.to_stage = r.stage
-                      and e.kind = 'stage_move' and e.source = 'portal' and e.actor_kind = 'client' and e.actor_member_id = r.member_id) then
+                      and e.kind = case r.action when 'move_stage' then 'stage_move' else r.action end
+                      and e.source = 'portal' and e.actor_kind = 'client' and e.actor_member_id = r.member_id) then
       problems := problems || format('key %s (%s) does not match an event it created', r.key, r.ref);
     end if;
+    if r.action <> 'move_stage' and r.note_id is null then problems := problems || format('key %s (%s) has no note in its result', r.key, r.ref); end if;
   end loop;
+
+  -- Client notes (milestone 2): each decline or feedback key's note must be exactly the one it created, and any other note
+  -- in the fictional clients is not this run's. (Skipped where milestone 2 is not applied.)
+  if to_regclass('public.client_notes') is not null then
+    select count(*) into n_notes from restore_found where action <> 'move_stage';
+    for r in select f.key, b.ref from restore_found f left join restore_baseline b using (submission_id)
+              where f.action <> 'move_stage'
+                and not exists (select 1 from public.client_notes cn where cn.id = f.note_id and cn.event_id = f.event_id and cn.submission_id = f.submission_id
+                                   and cn.kind = f.action and cn.author_member_id = f.member_id) loop
+      problems := problems || format('key %s (%s) does not match the note it created', r.key, r.ref);
+    end loop;
+    for r in select cn.id, s.ref from public.client_notes cn join public.submissions s on s.id = cn.submission_id join public.clients c on c.id = cn.client_id
+              where c.ref in ('harbor', 'northwind') and cn.event_id not in (select event_id from restore_found) loop
+      problems := problems || format('note %s (%s) was not made by this run', r.id, r.ref);
+    end loop;
+  elsif exists (select 1 from restore_found where action <> 'move_stage') then
+    problems := problems || 'decline or feedback keys exist but milestone 2 (client_notes) is not applied';
+  end if;
 
   -- Anything in the fictional clients that looks like a portal move but is not this run's: refuse rather than guess.
   for r in select e.id, s.ref, e.submission_version from public.submission_events e join public.submissions s on s.id = e.submission_id
@@ -305,9 +328,15 @@ begin
 
   -- Undo, in dependency order, touching only the rows identified above.
   delete from app_private.idempotency_keys k using restore_found f
-   where k.member_id = f.member_id and k.action = 'move_stage' and k.submission_id = f.submission_id and k.key = f.key;
+   where k.member_id = f.member_id and k.action = f.action and k.submission_id = f.submission_id and k.key = f.key;
   get diagnostics n = row_count;
   if n <> n_found then raise exception 'RESTORE STOPPED: deleted % key rows, expected %. Nothing was changed.', n, n_found; end if;
+
+  if n_notes > 0 then
+    delete from public.client_notes cn using restore_found f where cn.id = f.note_id and cn.event_id = f.event_id;
+    get diagnostics n = row_count;
+    if n <> n_notes then raise exception 'RESTORE STOPPED: deleted % notes, expected %. Nothing was changed.', n, n_notes; end if;
+  end if;
 
   delete from public.submission_events e using restore_found f where e.id = f.event_id;
   get diagnostics n = row_count;
@@ -339,7 +368,13 @@ rows_out(ord, check_name, value, ok) as (
   select 2, 'This run''s idempotency keys remaining', (select count(*) from app_private.idempotency_keys k join run_keys r on r.key = k.key and r.submission_id = k.submission_id)::text,
          not exists (select 1 from app_private.idempotency_keys k join run_keys r on r.key = k.key and r.submission_id = k.submission_id)
   union all
-  select 3, 'Portal moves in the fictional clients', (select count(*) from public.submission_events where source = 'portal')::text,
+  select 3, 'Client notes (decline and feedback)',
+         case when to_regclass('public.client_notes') is null then 'not applied'
+              else (xpath('/row/n/text()', query_to_xml('select count(*) as n from public.client_notes', false, true, '')))[1]::text end,
+         case when to_regclass('public.client_notes') is null then true
+              else (xpath('/row/n/text()', query_to_xml('select count(*) as n from public.client_notes', false, true, '')))[1]::text = '0' end
+  union all
+  select 3, 'Portal moves and decisions in the fictional clients', (select count(*) from public.submission_events where source = 'portal')::text,
          not exists (select 1 from public.submission_events where source = 'portal')
   union all
   select 4, 'Submissions / events / memberships (baseline 15 / 26 / 3)',

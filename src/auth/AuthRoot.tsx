@@ -56,5 +56,6 @@ function Portal({ url, publicKey }: { url: string; publicKey: string }) {
   const account = state.status === "ready" ? keyOf({ userId: state.user.id, clientId: state.client.id }) : "";
   const route = useHashRoute();
   return <AuthView state={state} route={route} actions={{ signIn: auth.signIn, signOut: auth.signOut, retry: auth.retry }} workspace={{ state: workspace, retry: data.retry, moves: { state: move, retry: moves.retry, dismiss: moves.dismiss,
-      move: (sub, to, seen) => moves.move(account, { id: sub.id, version: seen.version, stage: seen.stage }, to) }, devRecording: DEV_RECORDING }} />;
+      move: (sub, to, seen) => moves.move(account, { id: sub.id, version: seen.version, stage: seen.stage }, to),
+      act: (sub, intent, seen) => moves.act(account, { id: sub.id, version: seen.version, stage: seen.stage }, intent) }, devRecording: DEV_RECORDING }} />;
 }

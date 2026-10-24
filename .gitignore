@@ -28,6 +28,11 @@ supabase/.env*.local
 !supabase/.env.test-users.example
 # Local API test run records and their restore SQL (no secrets, but run-specific)
 supabase/runs/
+# Manatal feasibility: the token, the chosen dummy record ids, and the reports stay local
+manatal/*.local
+manatal/*.local.json
+manatal/runs/
+!manatal/.env.manatal.example
 supabase/.temp/
 .npmrc
 *.pem

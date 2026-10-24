@@ -1,7 +1,8 @@
 /* Development-only record of a manual UI stage-change test run, kept by the Vite dev server (never in a build).
-   Before each client_move_stage request, the browser sends the request's idempotency key, submission id, the version and
-   stage the user saw, and the target stage; after the answer, the outcome. Only these whitelisted fields are kept: the
-   record never holds passwords, session tokens or keys of the project. The cleanup SQL is generated from it
+   Before each client action request (stage move, decline or feedback), the browser sends the action kind, the request's
+   idempotency key, submission id, the version and stage the user saw, and the resulting stage; after the answer, the
+   outcome. Only these whitelisted fields are kept: the record never holds passwords, session tokens, keys of the project,
+   or any note or feedback text. The cleanup SQL is generated from it
    (npm run db:ui-moves:restore-sql) and is never run automatically. */
 import crypto from "node:crypto";
 import fs from "node:fs";
@@ -17,11 +18,12 @@ export function cleanEntry(e) {
   if (!e || typeof e !== "object" || Array.isArray(e)) return null;
   const at = new Date().toISOString();
   if (e.phase === "sent") {
-    const keys = ["phase", "key", "submission_id", "expected_version", "seen_stage", "to_stage", "attempt"];
+    const keys = ["phase", "action", "key", "submission_id", "expected_version", "seen_stage", "to_stage", "attempt"];
     if (Object.keys(e).some((k) => !keys.includes(k))) return null;
+    if (!["move", "decline", "feedback"].includes(e.action)) return null;
     if (!UUID.test(e.key) || !UUID.test(e.submission_id) || !int(e.expected_version) || e.expected_version < 1 || !int(e.attempt)) return null;
     if (!STAGES.includes(e.seen_stage) || !STAGES.includes(e.to_stage)) return null;
-    return { phase: "sent", at, key: e.key, submission_id: e.submission_id, expected_version: e.expected_version, seen_stage: e.seen_stage, to_stage: e.to_stage, attempt: e.attempt };
+    return { phase: "sent", at, action: e.action, key: e.key, submission_id: e.submission_id, expected_version: e.expected_version, seen_stage: e.seen_stage, to_stage: e.to_stage, attempt: e.attempt };
   }
   if (e.phase === "outcome") {
     const keys = ["phase", "key", "submission_id", "outcome"];

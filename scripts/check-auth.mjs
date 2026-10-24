@@ -3,6 +3,7 @@
    request to that made-up project inside the browser (Playwright routes): nothing reaches a real Supabase project, and any
    other outside request fails the check. Screenshots go to compare-output/auth/.
    Usage: npm run check:auth (the demo dev server on 5173 is not needed and is not affected) */
+import crypto from "node:crypto";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
@@ -37,6 +38,7 @@ const WORKSPACES = {
                   row("c1", { id: "5a1a0000-0000-4000-8000-000000000012", role_id: "r12", person_id: "p11", stage: "To review", shared_on: ago(3), publication: "published", version: 1 }),
                   row("c1", { id: "5a1a0000-0000-4000-8000-000000000013", role_id: "r11", person_id: "p12", stage: "Declined", shared_on: ago(20), publication: "published", version: 2 }),
                   row("c1", { id: "5a1a0000-0000-4000-8000-000000000014", role_id: "r11", person_id: "p13", stage: "To review", shared_on: ago(30), publication: "published", version: 1 })],
+    client_notes: [],
     submission_events: [
       row("c1", { id: 1, submission_id: "5a1a0000-0000-4000-8000-000000000011", submission_version: 1, kind: "shared", to_stage: "To review", occurred_on: ago(5), actor_kind: "revenue_optics", actor_member_id: null }),
       row("c1", { id: 2, submission_id: "5a1a0000-0000-4000-8000-000000000011", submission_version: 2, kind: "stage_move", to_stage: "Interview", occurred_on: ago(1), actor_kind: "client", actor_member_id: null }),
@@ -50,9 +52,10 @@ const WORKSPACES = {
     roles: [row("c2", { id: "r21", title: "Second Role Only", location: "Austin, TX", status: "Open", opened_on: "2026-10-03", recruiter_name: "Jamie Scott" })],
     people: [row("c2", { id: "p21", name: "Sky Second", headline: "Planner", location: "" })],
     submissions: [row("c2", { id: "5a1a0000-0000-4000-8000-000000000021", role_id: "r21", person_id: "p21", stage: "To review", shared_on: "2026-10-09", publication: "published", version: 1 })],
+    client_notes: [],
     submission_events: [row("c2", { id: 7, submission_id: "5a1a0000-0000-4000-8000-000000000021", submission_version: 1, kind: "shared", to_stage: "To review", occurred_on: "2026-10-09", actor_kind: "revenue_optics", actor_member_id: null })],
   },
-  c4: { roles: [], people: [], submissions: [], submission_events: [] },
+  c4: { roles: [], people: [], submissions: [], submission_events: [], client_notes: [] },
 };
 const FIRST_NAMES_C1 = ["Riley Offline", "Casey Offline", "Field Technician", "Dispatch Planner"];
 const control = { slowClient: null, failWorkspaceOnce: new Set(["c4"]), loseRpcAnswers: 0, holdRpc: null };
@@ -69,6 +72,30 @@ function pageOf(rows, params) {
   for (const [k, v] of params) if (v.startsWith("gt.")) out = out.filter((r) => cmp(r[k], typeof r[k] === "number" ? Number(v.slice(3)) : v.slice(3)) > 0);
   return out.slice(0, limit);
 }
+/* client_decline and client_add_feedback, as the made-up server: the same development rules as the real functions. */
+function decide(cid, fn, b, memberId) {
+  const ws = WORKSPACES[cid], sub = ws?.submissions.find((x) => x.id === b.p_submission_id);
+  const text = String((fn === "client_decline" ? b.p_note : b.p_text) ?? "").trim();
+  if (!text) return [400, { code: "PT400", message: "invalid_request" }];
+  if (!sub) return [404, { code: "PT404", message: "submission_not_found" }];
+  const k = `${fn}:${cid}:${b.p_submission_id}:${b.p_idempotency_key}`, fp = JSON.stringify([text, b.p_category ?? null, b.p_about ?? null, b.p_expected_version]);
+  if (rpcKeys.has(k)) return rpcKeys.get(k).fp === fp ? [200, rpcKeys.get(k).result] : [409, { code: "PT409", message: "idempotency_key_reused" }];
+  if (sub.version !== b.p_expected_version) return [409, { code: "PT409", message: "version_conflict" }];
+  const role = ws.roles.find((r) => r.id === sub.role_id);
+  const ok = fn === "client_decline" ? role.status === "Open" && ["To review", "Interview", "Offer"].includes(sub.stage)
+    : ["Open", "On hold"].includes(role.status) && ["Interview", "Offer"].includes(sub.stage);
+  if (!ok) return [403, { code: "PT403", message: "action_not_permitted" }];
+  if (fn === "client_decline") sub.stage = "Declined";
+  sub.version += 1;
+  const eventId = nextEventId++, kind = fn === "client_decline" ? "decline" : "feedback", noteId = crypto.randomUUID();
+  ws.submission_events.push(row(cid, { id: eventId, submission_id: sub.id, submission_version: sub.version, kind, to_stage: sub.stage, occurred_on: ago(0), actor_kind: "client", actor_member_id: memberId }));
+  ws.client_notes.push(row(cid, { id: noteId, submission_id: sub.id, event_id: eventId, kind, about: fn === "client_decline" ? null : (b.p_about ?? null), text,
+    category: fn === "client_decline" ? (b.p_category ?? null) : null, author_member_id: memberId, created_at: new Date().toISOString() }));
+  const result = { submission_id: sub.id, stage: sub.stage, version: sub.version, event_id: eventId, note_id: noteId };
+  rpcKeys.set(k, { fp, result });
+  return [200, result];
+}
+
 function moveStage(cid, b, memberId) {
   const ws = WORKSPACES[cid], sub = ws?.submissions.find((x) => x.id === b.p_submission_id);
   if (!sub) return [404, { code: "PT404", message: "submission_not_found" }];
@@ -123,16 +150,18 @@ async function handle(route) {
   }
   if (u.pathname === "/rest/v1/clients") return json(route, 200, user?.client && u.searchParams.get("id") === `eq.${user.client.id}` ? [user.client] : []);
   const table = u.pathname.slice("/rest/v1/".length), cid = user?.member?.client_id;
-  if (u.pathname === "/rest/v1/rpc/client_move_stage" && req.method() === "POST") {
+  const rpcFn = u.pathname.match(/^\/rest\/v1\/rpc\/(client_move_stage|client_decline|client_add_feedback)$/)?.[1];
+  if (rpcFn && req.method() === "POST") {
     const b = JSON.parse(req.postData() || "{}");
-    rpcCalls.push(b);
+    rpcCalls.push({ ...b, fn: rpcFn });
     /* The development test-run record must already hold this exact request when it reaches the server. */
     const runFile = fs.readdirSync(RECORD_DIR).find((f) => f.endsWith(".json"));
-    const recorded = runFile && JSON.parse(fs.readFileSync(path.join(RECORD_DIR, runFile), "utf8")).entries.some((e) => e.phase === "sent" && e.key === b.p_idempotency_key && e.submission_id === b.p_submission_id && e.expected_version === b.p_expected_version && e.to_stage === b.p_to_stage);
+    const recorded = runFile && JSON.parse(fs.readFileSync(path.join(RECORD_DIR, runFile), "utf8")).entries.some((e) => e.phase === "sent" && e.key === b.p_idempotency_key && e.submission_id === b.p_submission_id && e.expected_version === b.p_expected_version
+      && e.action === (rpcFn === "client_decline" ? "decline" : rpcFn === "client_add_feedback" ? "feedback" : "move") && (rpcFn !== "client_move_stage" || e.to_stage === b.p_to_stage));
     if (!recorded) unrecordedSends.push(b.p_idempotency_key);
     if (control.holdRpc) await control.holdRpc;
     if (!cid) return json(route, 403, { code: "PT403", message: "not_a_client_member" });
-    const [status, out] = moveStage(cid, b, user.member.id);
+    const [status, out] = rpcFn === "client_move_stage" ? moveStage(cid, b, user.member.id) : decide(cid, rpcFn, b, user.member.id);
     if (control.loseRpcAnswers > 0) { control.loseRpcAnswers--; return route.abort("connectionreset"); }
     return json(route, status, out);
   }
@@ -196,8 +225,8 @@ try {
   await A.evaluate(() => (location.hash = "#role-r11"));
   ck("role page: database fields; descriptions and requirements not connected", await waitH1(A, "Field Technician") && (await body(A)).includes("requirements are not connected yet"));
   await A.evaluate(() => (location.hash = "#c-5a1a0000-0000-4000-8000-000000000011"));
-  ck("candidate page: database fields; decline and feedback disabled", await waitH1(A, "Riley Offline")
-    && (await A.$eval("button.btn-d", (b) => b.disabled)) && (await A.$eval("text=Share interview feedback", (b) => b.disabled)) && (await body(A)).includes("Manatal is not updated"));
+  ck("candidate page: database fields; decline and feedback offered at Interview on an open role [provisional]", await waitH1(A, "Riley Offline")
+    && !(await A.$eval("[data-form=decline]", (b) => b.disabled)) && !(await A.$eval("[data-form=feedback]", (b) => b.disabled)) && (await body(A)).includes("Manatal is not updated"));
   await shot(A, "candidate");
 
   /* Stage changes (made-up server). Riley Offline, Field Technician (open role), Interview v1 → Offer [provisional]. */
@@ -261,6 +290,49 @@ try {
   await signIn(A, "active@example.com"); await waitClient(A, "Offline Test Client");
   await A.evaluate(() => (location.hash = "#c-5a1a0000-0000-4000-8000-000000000014")); await waitH1(A, "Jordan Offline");
   ck("after signing in again: no leftover message, the saved stage is read from the database", !(await body(A)).includes("Stage saved") && await waitText(A, ".statusdl", "Interview"));
+
+  /* Decisions (milestone 2), on Jordan Offline (Field Technician, open role, Interview). */
+  ck("decisions: Decline and Share interview feedback are offered at Interview on an open role [provisional]",
+    !(await A.$eval("[data-form=decline]", (b) => b.disabled)) && !(await A.$eval("[data-form=feedback]", (b) => b.disabled)));
+  let d0 = rpcCalls.length;
+  const jordanVersion = WORKSPACES.c1.submissions.find((x) => x.id === "5a1a0000-0000-4000-8000-000000000014").version;
+  await A.click("[data-form=feedback]");
+  await A.click("#actForm button[type=submit]");
+  ck("feedback: an empty note is refused in the form, and nothing is sent", (await A.innerText("#actForm .err")).includes("Add your feedback before sharing.") && rpcCalls.length === d0);
+  await A.fill("#fNote", "Strong on scheduling; check weekend availability.");
+  await A.dblclick("#actForm button[type=submit]");
+  ck("feedback: saved after the server confirms; the stage is unchanged", await waitText(A, ".act", "Feedback saved") && (await A.innerText(".act")).includes("Stage unchanged") && await waitText(A, ".statusdl", "Interview"));
+  ck("feedback: a double click sends one request (client_add_feedback, version seen, new key)", rpcCalls.length - d0 === 1 && rpcCalls.at(-1).fn === "client_add_feedback" && rpcCalls.at(-1).p_expected_version === jordanVersion, `sent ${rpcCalls.length - d0}, version ${rpcCalls.at(-1).p_expected_version} of ${jordanVersion}`);
+  await A.click("text=Done");
+  await A.click("[data-tab=notes]");
+  ck("notes: the feedback shows as yours, under its subject, and in the history",
+    await waitText(A, ".tabp", "Strong on scheduling") && (await A.innerText(".tabp")).includes("about General feedback") && (await A.innerText(".tabp")).includes("You ·")
+    && (await A.innerText(".hist")).includes("You shared interview feedback"));
+  await shot(A, "notes-feedback");
+  /* Decline, with one lost answer: the automatic retry with the same key resolves it. */
+  control.loseRpcAnswers = 1; d0 = rpcCalls.length;
+  await A.click("[data-form=decline]");
+  await A.fill("#fNote", "\t\n   \n");
+  await A.click("#actForm button[type=submit]");
+  ck("decline: a note of only tabs, newlines and spaces is refused in the form, and nothing is sent",
+    (await A.innerText("#actForm .err")).includes("Add a short note so the recruiter knows why.") && rpcCalls.length === d0);
+  await A.fill("#fNote", "Needs more field-service experience.");
+  await A.selectOption("#fCat", "Experience not aligned");
+  await shot(A, "decline-form");
+  await A.click("#actForm button[type=submit]");
+  ck("decline: saved, with the neutral wording, after a lost answer and an automatic retry with the same key",
+    await A.waitForFunction(() => document.querySelector(".act")?.textContent?.includes("Declined for this role"), null, { timeout: 8000 }).then(() => true, () => false)
+    && rpcCalls.length - d0 === 2 && rpcCalls.at(-1).p_idempotency_key === rpcCalls.at(-2).p_idempotency_key && WORKSPACES.c1.client_notes.filter((n) => n.kind === "decline").length === 1);
+  await shot(A, "decline-saved");
+  await A.click("text=Done");
+  ck("after a decline: no further actions, the neutral note, and no 'You declined'",
+    await waitText(A, ".act", "Declined for this role. The note is in Notes and history.") && (await A.$eval("[data-form=decline]", (b) => b.disabled)) && !(await body(A)).includes("You declined Jordan for"));
+  await A.click("[data-tab=notes]");
+  ck("notes: the decline note with its category", await waitText(A, ".tabp", "Needs more field-service experience.") && (await A.innerText(".tabp")).includes("Experience not aligned"));
+  await shot(A, "notes-decline");
+  /* On-hold role (Riley Offline, Dispatch Planner, To review): neither decision is offered. */
+  await A.evaluate(() => (location.hash = "#c-5a1a0000-0000-4000-8000-000000000012")); await waitH1(A, "Riley Offline");
+  ck("on-hold role at To review: no decline and no feedback [provisional]", (await A.$eval("[data-form=decline]", (b) => b.disabled)) && (await A.$eval("[data-form=feedback]", (b) => b.disabled)));
   await A.evaluate(() => (location.hash = "#candidates"));
   await A.evaluate(() => (location.hash = "#candidates"));
 
@@ -324,8 +396,9 @@ try {
     ck("test-run record: readable only by its owner", runFile && (fs.statSync(path.join(RECORD_DIR, runFile)).mode & 0o777) === 0o600);
     ck("the banner says test-run recording is on", (await A.innerText(".mockline")).includes("test-run recording on"));
   }
-  const allowed = /^(GET \/rest\/v1\/|POST \/auth\/v1\/(token|logout)|POST \/rest\/v1\/rpc\/client_move_stage$)/;
-  ck("writes only through client_move_stage: nothing else besides reads, sign-in and sign-out", supabaseCalls.every((c) => allowed.test(c)), supabaseCalls.filter((c) => !allowed.test(c)).join(", "));
+  ck("test-run record: no decision text in it", !["Strong on scheduling", "Needs more field-service", "weekend availability"].some((x) => (fs.readdirSync(RECORD_DIR).filter((f) => f.endsWith(".json")).map((f) => fs.readFileSync(path.join(RECORD_DIR, f), "utf8")).join("")).includes(x)));
+  const allowed = /^(GET \/rest\/v1\/|POST \/auth\/v1\/(token|logout)|POST \/rest\/v1\/rpc\/(client_move_stage|client_decline|client_add_feedback)$)/;
+  ck("writes only through the three action functions: nothing else besides reads, sign-in and sign-out", supabaseCalls.every((c) => allowed.test(c)), supabaseCalls.filter((c) => !allowed.test(c)).join(", "));
   ck("no page errors", errors.length === 0, errors.join(" | "));
   ck("one Supabase client per tab (no duplicate GoTrueClient warning)", !consoleWarnings.some((w) => w.includes("Multiple GoTrueClient")), consoleWarnings.filter((w) => w.includes("GoTrueClient")).slice(0, 1).join(""));
   ck("no other console warnings or errors", consoleWarnings.filter((w) => !w.includes("Multiple GoTrueClient") && !w.includes("Failed to load resource")).length === 0, consoleWarnings.filter((w) => !w.includes("Failed to load resource")).slice(0, 3).join(" | "));

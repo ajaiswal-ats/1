@@ -13,14 +13,20 @@ The Talent Solutions client portal, rebuilt from the `client-workspace-v1-visual
 - Supabase mode, candidate history (read-only): the candidate page's Notes and history tab lists the submission's history from the database, in version order (shown newest first) with dates. "You" only for the signed-in member's own recorded changes; "Client team" for another member or a client change recorded without who made it; "Revenue Optics" for its entries. Missing entries are reported, not invented. Checked by hand: Taylor Brooks, Regional Sales Manager (both entries, their order, the current stage and the on-hold restriction).
 - Workspace reads are paginated (keyset by id, until an empty page), so the API's per-request row cap cannot silently truncate lists, counts or history; a page out of order, a failed page or the 200-page safety limit stops the load with an error instead of showing part of it. Pages are separate requests, not one snapshot: a row added during a load may be missed until the next load. Tested offline, including caps below the page size.
 - Sign-in: a pending sign-in superseded by another tab's sign-in (or a sign-out) can no longer overwrite the current account; storage-quota failures get their own message. Tested offline, including with the pinned supabase-js.
+- Database milestone 2, decline and interview feedback (`client_notes`, `client_decline`, `client_add_feedback`; `supabase/README.md`): applied to the hosted project. Post-migration check all OK; SQL Editor access tests 65/65 (rolled back). Their rules are development-only (D3); saving a decision notifies nobody and does not update Manatal.
+- Supabase mode, decline and feedback on the candidate page: checked by hand in one recorded run (24 Oct 2026): Aisha Bello, Field Sales Representative, declined from To review (saved); feedback for Jordan Ellis, Inside Sales Leader, saved with the stage unchanged at Interview; a move sent with the version from before that feedback refused as a version conflict, nothing saved. Cleaned up with SQL generated from the run's exact keys: all OK, baseline 15 / 26 / 3, no notes, portal decisions or run keys left.
+  A second recorded run: Taylor Brooks, Regional Sales Manager (on-hold role at Interview) shows stage changes paused, Decline disabled and interview feedback available, nothing sent; and one more normal decline for Aisha Bello (saved, not interrupted). Cleaned up the same way: all OK, Aisha back at To review v1, baseline 15 / 26 / 3, no notes, portal decisions or run keys left.
+- **Pending (not yet verified on the hosted project):** a decision request with no answer (same-key automatic retry, "Check again", saved once). Tested offline only; the hosted check was the stage-move version (Priya Raman).
 
 **Provisional, for development testing only**
 - Client moves to Offer and Hired, and the rule behind them (open roles only; no moves out of Offer, Hired or Declined). Not approved for production (decision D3).
 
 **Not connected yet (Supabase mode)**
-- Candidate details: summary and "why shared", requirement evidence, strengths and points to clarify, key facts, screening interview, resume, and client notes (history is connected). Role descriptions and requirements. "Waiting on you" and next steps. Hiring progress.
-- Decline and interview feedback: shown disabled (no database functions yet).
+- Candidate details: summary and "why shared", requirement evidence, strengths and points to clarify, key facts, screening interview and resume (history and decision notes are connected). Role descriptions and requirements. "Waiting on you" and next steps. Hiring progress.
 - Notifications and Manatal: saving a stage notifies nobody and does not update Manatal.
+
+**Manatal feasibility (prepared, not run)**
+- `manatal/FEASIBILITY-CHECKLIST.md` and a read-only harness (`node scripts/manatal/feasibility.mjs`): explicitly selected, admin-created dummy records only; GET only; redacted report. Needs Akansha's approval, a Manatal admin and a locally stored token (never in chat).
 
 **Development tools**
 - `npm run check:auth`: offline browser check of sign-in, lists and stage changes (stand-in Supabase, no network).

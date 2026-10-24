@@ -85,3 +85,22 @@ npm run db:verify                   # should report the project as empty again
 Offer and Hired moves follow the 2h prototype rule as **provisional test behaviour**, not production approval (D3 in `docs/backend-plan.md`).
 
 **Migration history.** The migration is applied with psql, not with `supabase db push`, so Supabase's migration history table stays empty. If the Supabase CLI is adopted later, record this migration as already applied (`supabase migration repair --status applied 20261023120000`) before pushing new ones.
+
+
+## Milestone 2: decline and interview feedback (applied to the hosted development project, 24 Oct 2026)
+Files: `migrations/20261025120000_m2_decline_feedback.sql`, `rollback/20261025120000_m2_down.sql`, `checks/m2_post_migration.sql`, `tests/m2_access_editor.sql`.
+
+**Manual order (after approval):** run `checks/m1_post_memberships.sql` (all OK), then the migration (one transaction; it stops, changing nothing, unless milestone 1 is exactly as expected), then `checks/m2_post_migration.sql` (all OK), then `tests/m2_access_editor.sql` (rolled back; the report should read `0 failed`). `tests/m1_access_editor.sql` still passes with milestone 2 applied.
+
+**What it adds:** history entries of kind `decline` and `feedback` (client entries with their member); `client_notes`, each tied by one composite key to its own history entry (same submission, client, kind and author), add-only, readable only within the client and on published submissions, with no direct writes; and `client_decline` / `client_add_feedback`, with the same idempotency, version and isolation rules as `client_move_stage`. Feedback keeps the stage and raises the version.
+
+**Development-only rules (not production permissions, D3):** decline on an open role from To review, Interview or Offer; feedback on an open or on-hold role at Interview or Offer (a stand-in for an interview record); closed roles, Hired and Declined: neither. Optional decline categories (2h's list) with a mandatory note; any active client member may act; notes are visible to the whole client team.
+
+**Rollback:** `rollback/20261025120000_m2_down.sql` refuses while any decline or feedback exists; restore the baseline first. Run milestone 1's rollback only after it.
+
+**Cleanup after a recorded UI test:** as for stage moves (`npm run db:ui-moves:restore-sql -- <record>`). The generated SQL now also deletes the run's notes (only those linked to the run's keys) and refuses on any note or decision not made by the run, including later ones on the same candidates. The record never contains note or feedback text.
+
+**Integration boundaries kept open (Manatal):**
+- Stage ownership between Manatal and the portal is unresolved: nothing here forbids a later, reviewed sync from adding history entries (for example with a new `source`); the action rules apply to client actions only.
+- A later sync's de-duplication must keep repeated legitimate transitions (Interview → To review → Interview): the match id plus a stage alone is not enough. See `manatal/FEASIBILITY-CHECKLIST.md`, step 2.
+- Portal decisions are immutable and carry no delivery status; any future delivery to Manatal is tracked separately (D4). Saving a decision does not update Manatal, and the UI says so.

@@ -1,7 +1,7 @@
 /* Stage changes: one key per intended move, retries with the same key, confirmed success only, conflicts, uncertain
    outcomes, duplicate clicks and account changes. A fake client_move_stage stands in for the server. */
 import { describe, expect, it } from "vitest";
-import { MOVE_MESSAGES, createMoveController, moveTargets, type MoveRequest, type RpcOutcome } from "./moves";
+import { MOVE_MESSAGES, canDecline, canGiveFeedback, createMoveController, moveTargets, type MoveRequest, type RpcOutcome } from "./moves";
 
 const flush = () => new Promise((r) => setTimeout(r, 0));
 const A = "ua:harbor", B = "ub:northwind";
@@ -31,7 +31,7 @@ describe("a confirmed move", () => {
     expect(c.getState()).toMatchObject({ status: "saving", attempt: 0 });
     expect(refreshes).toHaveLength(0);
     s.answer(ok); await flush();
-    expect(c.getState()).toEqual({ status: "saved", account: A, submissionId: "s1", toStage: "Interview" });
+    expect(c.getState()).toEqual({ status: "saved", account: A, submissionId: "s1", action: "move", toStage: "Interview" });
     expect(refreshes).toHaveLength(1);
   });
   it("ignores a second click while saving (no second request, no second key)", async () => {
@@ -173,6 +173,66 @@ describe("development test-run record (dev server only; not used in production)"
     c.sync(B); s.answer(ok); await flush();
     expect(outcomes).toEqual(["ok"]);
     expect(c.getState()).toEqual({ status: "idle" });
+  });
+});
+
+describe("client decisions (decline and feedback) through the same controller", () => {
+  const sub3 = { id: "s1", version: 3, stage: "Interview" as const };
+  it("decline: sends the note, optional category, version and a new key; success needs the server's note id", async () => {
+    const { s, c, refreshes } = setup();
+    expect(c.act(A, sub3, { action: "decline", note: "Not enough CRM depth.", category: null })).toBe(true);
+    expect(s.calls[0]).toMatchObject({ action: "decline", submissionId: "s1", toStage: "Declined", expectedVersion: 3, note: "Not enough CRM depth.", category: null, key: "key-1" });
+    s.answer({ kind: "ok", result: { submission_id: "s1", stage: "Declined", version: 4, event_id: 9, note_id: "n1" } }); await flush();
+    expect(c.getState()).toEqual({ status: "saved", account: A, submissionId: "s1", action: "decline", toStage: "Declined" });
+    expect(refreshes).toHaveLength(1);
+  });
+  it("feedback: the stage must come back unchanged, with the version raised by one", async () => {
+    const { s, c } = setup();
+    c.act(A, sub3, { action: "feedback", about: "General feedback", text: "Strong on process." });
+    expect(s.calls[0]).toMatchObject({ action: "feedback", toStage: "Interview", about: "General feedback", text: "Strong on process." });
+    s.answer({ kind: "ok", result: { submission_id: "s1", stage: "Interview", version: 4, event_id: 9, note_id: "n1" } }); await flush();
+    expect(c.getState()).toMatchObject({ status: "saved", action: "feedback", toStage: "Interview" });
+  });
+  it("a decision answer without a note id, or with a changed stage for feedback, is not shown as success", async () => {
+    for (const [intent, result] of [
+      [{ action: "decline", note: "x", category: null }, { submission_id: "s1", stage: "Declined", version: 4, event_id: 9 }],
+      [{ action: "feedback", about: null, text: "x" }, { submission_id: "s1", stage: "Offer", version: 4, event_id: 9, note_id: "n1" }],
+    ] as const) {
+      const { s, c } = setup();
+      c.act(A, sub3, intent); s.answer({ kind: "ok", result }); await flush();
+      expect(c.getState(), intent.action).toMatchObject({ status: "failed", message: MOVE_MESSAGES.unexpected });
+    }
+  });
+  it("retries of a decision reuse its key and content; a second decision gets a new key", async () => {
+    const { s, c } = setup();
+    c.act(A, sub3, { action: "decline", note: "x", category: "Other" });
+    s.answer({ kind: "uncertain" }); await flush();
+    expect(s.calls[1]).toEqual(s.calls[0]);
+    s.answer({ kind: "ok", result: { submission_id: "s1", stage: "Declined", version: 4, event_id: 9, note_id: "n1" } }); await flush(); c.dismiss();
+    c.act(A, { id: "s2", version: 2, stage: "Interview" }, { action: "feedback", about: null, text: "y" });
+    expect(s.calls[2].key).toBe("key-2");
+  });
+  it("action_not_permitted gets the not-permitted message; recorded entries carry the action and never the text", async () => {
+    const recorded: unknown[] = [], s = server();
+    const c = createMoveController(s.rpc, () => {}, { newKey: () => "key-1", record: async (e) => { recorded.push(e); } });
+    c.sync(A); c.act(A, sub3, { action: "decline", note: "Secret reason text", category: null }); await flush();
+    s.answer({ kind: "error", code: "action_not_permitted" }); await flush();
+    expect(c.getState()).toMatchObject({ status: "failed", message: MOVE_MESSAGES.notPermitted });
+    expect(recorded[0]).toMatchObject({ phase: "sent", action: "decline", to_stage: "Declined" });
+    expect(JSON.stringify(recorded)).not.toContain("Secret reason text");
+  });
+});
+
+describe("provisional decision rules (development only)", () => {
+  const role = (status: "Open" | "On hold" | "Closed") => ({ id: "r", title: "R", location: "", status, openedOn: "2026-10-01", recruiterName: "" });
+  const at = (stage: "To review" | "Interview" | "Offer" | "Hired" | "Declined") => ({ id: "s", roleId: "r", personId: "p", stage, sharedOn: "2026-10-01", version: 1 });
+  it("decline: open role, from To review, Interview or Offer", () => {
+    const allowed = (["Open", "On hold", "Closed"] as const).flatMap((r) => (["To review", "Interview", "Offer", "Hired", "Declined"] as const).filter((st) => canDecline(at(st), role(r))).map((st) => `${r}:${st}`));
+    expect(allowed).toEqual(["Open:To review", "Open:Interview", "Open:Offer"]);
+  });
+  it("feedback: open or on-hold role, at Interview or Offer; closed roles read-only", () => {
+    const allowed = (["Open", "On hold", "Closed"] as const).flatMap((r) => (["To review", "Interview", "Offer", "Hired", "Declined"] as const).filter((st) => canGiveFeedback(at(st), role(r))).map((st) => `${r}:${st}`));
+    expect(allowed).toEqual(["Open:Interview", "Open:Offer", "On hold:Interview", "On hold:Offer"]);
   });
 });
 
