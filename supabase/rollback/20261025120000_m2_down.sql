@@ -8,6 +8,7 @@ begin
   if exists (select 1 from public.client_notes) or exists (select 1 from public.submission_events where kind in ('decline', 'feedback')) then
     raise exception 'declines or feedback exist: restore the baseline first. Nothing changed.';
   end if;
+  if to_regclass('public.role_requirement_sets') is not null then raise exception 'milestone 3 is applied: roll it back first. Nothing changed.'; end if;
 end $$;
 
 drop function public.client_add_feedback(uuid, text, text, integer, uuid);

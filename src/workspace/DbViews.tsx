@@ -6,7 +6,7 @@ import { fd } from "../lib/dates";
 import { navFor } from "../lib/route";
 import { Seg, plural, stageColor } from "../progress/shared";
 import { StatusChip } from "../roles/StatusChip";
-import { alsoFor, countByStage, forRole, history, person, roleFor, roleRow, uniquePeople, type DbRole, type DbSubmission, type HistoryEntry, type Workspace } from "./data";
+import { alsoFor, countByStage, forRole, history, person, roleFor, roleRow, uniquePeople, type DbEvidenceStatus, type DbRole, type DbSubmission, type HistoryEntry, type Workspace } from "./data";
 import { DECLINE_CATEGORIES } from "../domain/actions";
 import { MOVE_MESSAGES, canDecline, canGiveFeedback, moveTargets, type Intent, type MoveState, type MoveTarget } from "./moves";
 import type { WorkspaceState } from "./store";
@@ -20,6 +20,9 @@ const NA = <span className="muted" title="Not connected yet">—</span>;
 const ACTIONS_OFF = "Stage changes, decline and interview feedback are on each candidate's page.";
 const initials = (name: string) => name.split(/\s+/).filter(Boolean).map((w) => w[0]).join("").slice(0, 2).toUpperCase();
 const year = (d: string) => d.slice(0, 4);
+/* As in the demo's candidate page (2h). */
+const REQ_ST: Record<DbEvidenceStatus, [string, string]> = { supported: ["Supported", "c-ok"], partly_supported: ["Partly supported", "c-info"], not_evidenced: ["Not evidenced", "c-mute"], confirmed_not_met: ["Confirmed not met", "c-warn"] };
+const first = (name: string) => name.split(" ")[0];
 
 /** Stage changes for the signed-in account: its key (moves for another account are ignored), the state and the actions. */
 export interface MovesProps {
@@ -108,22 +111,35 @@ function RolesList({ ws, today }: { ws: Workspace; today: string }) {
 function RoleDetail({ ws, id, today }: { ws: Workspace; id: string; today: string }) {
   const r = ws.roles.find((x) => x.id === id);
   if (!r) return <><nav className="crumb"><a href="#roles">← Roles</a></nav><p>Role not found.</p></>;
-  const x = roleRow(ws, r, today);
+  const x = roleRow(ws, r, today), info = ws.content?.roleInfo.get(r.id), set = ws.content?.sets.get(r.id);
   return (
     <>
       <nav className="crumb"><a href="#roles">← Roles</a></nav>
+      {info?.holdNote && <div className="banner warn">{info.holdNote}</div>}
       <div className="card pad">
         <div style={{ display: "flex", gap: 12, alignItems: "center", flexWrap: "wrap" }}><h1>{r.title}</h1><StatusChip status={r.status} /></div>
+        {info?.summary && <p className="lede">{info.summary}</p>}
         <dl className="rmeta">
           {r.location && <div><dt>Location</dt><dd>{r.location}</dd></div>}
           <div><dt>Opened</dt><dd>{`${fd(r.openedOn)} ${year(r.openedOn)}`}</dd></div>
           {r.recruiterName && <div><dt>Recruiter</dt><dd>{`${r.recruiterName}, Revenue Optics`}</dd></div>}
+          {set && <div><dt>Requirements</dt><dd>{set.label}</dd></div>}
         </dl>
         <div className="funnel">
           <div className="ftile total"><div className="n num">{x.shared}</div><div className="l">Shared with you</div></div>
           {COLS.map((s, i) => <div key={s} className="ftile" style={{ boxShadow: `inset 0 3px 0 ${stageColor(s)}` }}><div className="n num">{x.byStage[i]}</div><div className="l">{s}</div></div>)}
         </div>
-        <div className="rempty">The role summary, what the role involves, the job description and the requirements are not connected yet.</div>
+        {!ws.content ? <div className="rempty">The role summary, what the role involves, the job description and the requirements are not connected yet.</div>
+          : Boolean(info?.responsibilities.length || info?.jobDescription || set) && (
+            <div className="rd">
+              <div>
+                {info && info.responsibilities.length > 0 && <><h2>What the role involves</h2><ul className="rd-ul" style={{ paddingLeft: 18 }}>{info.responsibilities.map((t) => <li key={t}>{t}</li>)}</ul></>}
+                {info?.jobDescription && <details className="jd"><summary>Read the full job description</summary><p>{info.jobDescription}</p></details>}
+              </div>
+              {set && <div className="box"><h2>Requirements</h2><p className="xs muted" style={{ margin: "2px 0 6px" }}>{set.label}</p>
+                <ul className="reqlist">{set.requirements.map((q) => <li key={q.id}><span>{q.text}</span><span className={`chip ${q.tier === "must" ? "c-stage" : "c-mute"}`}>{q.tier === "must" ? "Must-have" : "Preferred"}</span></li>)}</ul></div>}
+            </div>
+          )}
       </div>
       <section className="card pad" style={{ marginTop: 18 }}>
         <div className="sec-h"><h2>Candidates for this role</h2></div>
@@ -222,7 +238,7 @@ function SubmissionTable({ ws, list, noRole = false }: { ws: Workspace; list: Db
   );
 }
 
-/* The candidate page's tabs, as in 2h. Only Notes and history has database data (the history; notes are not stored yet). */
+/* The candidate page's tabs, as in 2h. Summary (milestone 3) and Notes and history have database data. */
 const TABS = [["summary", "Summary"], ["interview", "Screening interview"], ["resume", "Resume"], ["notes", "Notes and history"]] as const;
 type Tab = (typeof TABS)[number][0];
 const TAB_NOT_CONNECTED: Record<Exclude<Tab, "notes">, string> = {
@@ -254,7 +270,7 @@ function CandidateDetail({ ws, id, moves, memberId }: { ws: Workspace; id: strin
             {TABS.map(([k, l]) => <button key={k} type="button" role="tab" data-tab={k} aria-selected={tab === k} onClick={() => setTab(k)}>{l}</button>)}
           </div>
           <div className="tabp" role="tabpanel">
-            {tab === "notes" ? <History ws={ws} sub={c} memberId={memberId} /> : <div className="rempty">{TAB_NOT_CONNECTED[tab]}</div>}
+            {tab === "notes" ? <History ws={ws} sub={c} memberId={memberId} /> : tab === "summary" && ws.content ? <Summary ws={ws} sub={c} /> : <div className="rempty">{TAB_NOT_CONNECTED[tab]}</div>}
           </div>
         </div>
         <aside className="card act" aria-label="Next step"><div className="pad">
@@ -269,6 +285,38 @@ function CandidateDetail({ ws, id, moves, memberId }: { ws: Workspace; id: strin
 }
 
 /** One history line, in 2h's wording: "Revenue Optics shared Priya for this role", "You moved Priya to Interview". */
+/** The Summary tab (2h's markup): the submission's published package, if one is shared, on its role's agreed requirements.
+    Sources are plain text here (the screening interview and resume tabs are not connected). Nothing is filled in. */
+export function Summary({ ws, sub }: { ws: Workspace; sub: DbSubmission }) {
+  const pkg = ws.content?.packages.get(sub.id), set = ws.content?.sets.get(sub.roleId);
+  if (!pkg || !set || set.id !== pkg.setId) return <div className="rempty">No summary is currently shared for this candidate.</div>;
+  const rows = set.requirements.map((q) => [q, pkg.evidence.get(q.id)!] as const);
+  const counts = (Object.keys(REQ_ST) as DbEvidenceStatus[]).map((k) => [k, rows.filter(([, e]) => e.status === k).length] as const).filter(([, n]) => n);
+  return (
+    <>
+      <p className="why"><b>{`Why Revenue Optics shared ${first(person(ws, sub).name)}.`}</b>{` ${pkg.whyShared}`}</p>
+      <div className="sec-h"><h2>Requirement check</h2><span className="xs muted">{`Requirements ${set.label}`}</span></div>
+      <div className="reqsum">{counts.map(([k, n]) => <span key={k} className={`chip ${REQ_ST[k][1]}`}>{`${n} ${REQ_ST[k][0].toLowerCase()}`}</span>)}</div>
+      <table className="req"><thead><tr><th>Requirement</th><th>Status</th><th>Evidence</th></tr></thead><tbody>
+        {rows.map(([q, e]) => (
+          <tr key={q.id}>
+            <td className="rq">{q.text}<span className="tier">{q.tier === "must" ? "Must-have" : "Preferred"}</span></td>
+            <td className="st"><span className={`chip ${REQ_ST[e.status][1]}`}>{REQ_ST[e.status][0]}</span></td>
+            <td className="ev">{e.evidence}{e.source && <div className="src">{`Source: ${e.source}`}</div>}</td>
+          </tr>
+        ))}
+      </tbody></table>
+      <div className="two">
+        <div className="box"><h3>Strengths</h3>{pkg.strengths.length ? <ul>{pkg.strengths.map((x) => <li key={x}>{x}</li>)}</ul> : <p className="muted small">None recorded.</p>}</div>
+        <div className="box"><h3>Points to clarify</h3>{pkg.pointsToClarify.length ? <ul>{pkg.pointsToClarify.map((x) => <li key={x}>{x}</li>)}</ul> : <p className="muted small">None recorded.</p>}</div>
+      </div>
+      <div className="box" style={{ marginTop: 16 }}><h3 style={{ marginBottom: 8 }}>Key facts</h3>
+        <dl className="kf">{pkg.keyFacts.length ? pkg.keyFacts.map((f) => <Fragment key={f.label}><dt>{f.label}</dt><dd>{f.value}</dd></Fragment>) : <dd className="muted">None recorded.</dd>}</dl>
+      </div>
+    </>
+  );
+}
+
 export function historyText(e: HistoryEntry, firstName: string) {
   if (e.kind === "shared") return `${e.actor} shared ${firstName} for this role`;
   if (e.kind === "feedback") return `${e.actor} shared interview feedback`;

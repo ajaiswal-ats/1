@@ -1,0 +1,19 @@
+{
+  "roles": 5,
+  "sets": 7,
+  "requirements": 22,
+  "packages": 17,
+  "evidence": 67,
+  "harborVisible": {
+    "sets": 4,
+    "requirements": 17,
+    "packages": 11,
+    "evidence": 48
+  },
+  "northwindVisible": {
+    "sets": 1,
+    "requirements": 2,
+    "packages": 0,
+    "evidence": 0
+  }
+}

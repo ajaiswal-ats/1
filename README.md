@@ -1,6 +1,8 @@
 # Client Portal V1
 
-The Talent Solutions client portal, rebuilt from the `client-workspace-v1-visual-2h` prototype. It runs in two separate modes: the **demo** (default), the reviewed workspace with fictional local data, where client actions are demo changes saved in this browser and nothing is sent anywhere; and **Supabase mode**, which signs in to the development Supabase project with fictional test accounts. There are no integrations and no deployment.
+**Delivery checklist (25 Oct 2026):** `../akansha-task-checklist.md` is the single active queue for portal delivery, Manatal integration and internal scoring. It is local project context and is not included in a fresh repository clone. This README records implementation and verification evidence, not a competing task list. Private scoring inputs are local under `docs/reference/scoring-inputs/` and excluded from Git in their entirety; do not copy their contents into code, issues or deployments.
+
+The Talent Solutions client portal, rebuilt from the `client-workspace-v1-visual-2h` prototype. It runs in two separate modes: the **demo** (default), the reviewed workspace with fictional local data, where client actions are demo changes saved in this browser and nothing is sent anywhere; and **Supabase mode**, which signs in to the development Supabase project with fictional test accounts. It has an internal Vercel test deployment (below); Manatal and notifications are not integrated.
 
 ## Status (checkpoint, 24 Oct 2026)
 **Complete and verified on the hosted development project** (fictional data only; baseline restored afterwards: 15 submissions, 26 events, 3 memberships, no portal moves or idempotency keys)
@@ -16,13 +18,26 @@ The Talent Solutions client portal, rebuilt from the `client-workspace-v1-visual
 - Database milestone 2, decline and interview feedback (`client_notes`, `client_decline`, `client_add_feedback`; `supabase/README.md`): applied to the hosted project. Post-migration check all OK; SQL Editor access tests 65/65 (rolled back). Their rules are development-only (D3); saving a decision notifies nobody and does not update Manatal.
 - Supabase mode, decline and feedback on the candidate page: checked by hand in one recorded run (24 Oct 2026): Aisha Bello, Field Sales Representative, declined from To review (saved); feedback for Jordan Ellis, Inside Sales Leader, saved with the stage unchanged at Interview; a move sent with the version from before that feedback refused as a version conflict, nothing saved. Cleaned up with SQL generated from the run's exact keys: all OK, baseline 15 / 26 / 3, no notes, portal decisions or run keys left.
   A second recorded run: Taylor Brooks, Regional Sales Manager (on-hold role at Interview) shows stage changes paused, Decline disabled and interview feedback available, nothing sent; and one more normal decline for Aisha Bello (saved, not interrupted). Cleaned up the same way: all OK, Aisha back at To review v1, baseline 15 / 26 / 3, no notes, portal decisions or run keys left.
+- Database milestone 3, role descriptions, versioned requirement sets and published candidate summaries (`supabase/README.md`): applied and seeded on the hosted project (fictional data). SQL Editor access tests 63/63 (rolled back); the post-seed check all OK afterwards. Clients read only; no scores of any kind.
+- Supabase mode, role pages and the Summary tab (milestone 3): checked by hand on the hosted development data, with the local build of this checkpoint: Taylor Brooks' Summary (why shared, requirement check, strengths, points to clarify, key facts); the job descriptions on two Harbor role pages; Daniel Okafor's Summary hidden ("No summary is currently shared for this candidate.": his packages are withdrawn and paused); Northwind's role showing only its Version 2 requirements, with Robin Hale's package on the superseded Version 1 hidden. Tested offline in addition: the role pages and all 11 visible Summary tabs match the demo's text.
 - **Pending (not yet verified on the hosted project):** a decision request with no answer (same-key automatic retry, "Check again", saved once). Tested offline only; the hosted check was the stage-move version (Priya Raman).
+- **Pending for milestone 3:** read-only Data API checks against the hosted project (no milestone 3 API script has been run; access was checked in the SQL Editor and through supabase-js offline), and a test with two real concurrent database sessions (the locks are in place and every ordering is tested one after the other offline; actual lock waits are not exercised).
+
+**Internal test deployment** (24 Oct 2026): https://client-portal-v1-taupe.vercel.app, commit `d211f1a`, Supabase mode against the hosted development project.
+This is an internal test deployment using shared fictional data, not a production-ready client portal. Manatal, notifications and the remaining candidate-detail and reporting features are not connected.
+- Verified by hand (Aakash): signed in as Harbor; the Candidates page showed 12 submissions, 11 people and 4 roles, the fictional-data notice, and no test-recording banner.
+- Checked from outside, read-only (no sign-in, no data requests): the page and its scripts load over HTTPS. The browser code is the local build of `d211f1a` plus Vercel's own build variables (its embedded commit is `d211f1a`), in Supabase mode with the test-run recorder off and no recorder endpoint. It holds only the public (anon) key of the development project: no secret key and no Manatal address.
+- Still pending on the hosted project: the decision request with no answer (see above).
+- The deployed build (`d211f1a`) predates milestone 3's frontend, so it still shows role descriptions, requirements and summaries as not connected even though the hosted database now has them.
 
 **Provisional, for development testing only**
 - Client moves to Offer and Hired, and the rule behind them (open roles only; no moves out of Offer, Hired or Declined). Not approved for production (decision D3).
 
+**Provisional, for fictional development only (milestone 3)**
+- Role descriptions are not versioned; who approved and published a package is not recorded (D1, D2); packages on superseded requirements are hidden until re-reviewed. Production approval remains open.
+
 **Not connected yet (Supabase mode)**
-- Candidate details: summary and "why shared", requirement evidence, strengths and points to clarify, key facts, screening interview and resume (history and decision notes are connected). Role descriptions and requirements. "Waiting on you" and next steps. Hiring progress.
+- Candidate details: screening interview and resume (Summary, history and decision notes are connected). The Requirements, Next step and Interview columns in the lists. "Waiting on you" and next steps. Hiring progress. Staff tools to write, approve and publish packages (content is seeded by the owner).
 - Notifications and Manatal: saving a stage notifies nobody and does not update Manatal.
 
 **Manatal feasibility (prepared, not run)**

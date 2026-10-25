@@ -33,6 +33,7 @@ const WS: Workspace = {
     { id: 4, submissionId: "s3", version: 1, kind: "shared", toStage: "To review", occurredOn: "2026-10-08", actorKind: "revenue_optics", actorMemberId: null },
   ],
   notes: [],
+  content: null,
 };
 const ready: WorkspaceState = { status: "ready", key: "u1:c1", ws: WS };
 const page = (route: string, state: WorkspaceState = ready) => renderToStaticMarkup(<WorkspacePage route={route} state={state} onRetry={() => {}} today="2026-10-12" />);

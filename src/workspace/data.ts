@@ -2,8 +2,10 @@
    their stage moves, read with the member's own session (row-level security decides what is returned). Read-only.
    Every row is checked: a missing field, an unknown stage or status, a link to a row that was not returned, or a row of
    another client is an error. Nothing is filled in, and nothing comes from the demo's fictional data.
-   Not in the database yet (shown as not connected): next steps and "waiting on you", requirement evidence, interviews,
-   outcomes, notes, role descriptions and requirements, and the search records behind Hiring progress.
+   Not in the database yet (shown as not connected): next steps and "waiting on you", interviews, outcomes, and the search
+   records behind Hiring progress. Role descriptions, agreed requirements and published candidate summaries (milestone 3)
+   are read when the database has them; without milestone 3 they are shown as not connected. A database with only part of
+   milestone 3, or one that refuses or fails any of its reads, is an error, never "not connected".
 
    Paging: the API returns at most a capped number of rows per request (Supabase's "Max rows", 1,000 by default) without
    saying so, so every table is read in pages with deterministic keyset paging: ordered by its unique key (id), each page
@@ -15,7 +17,7 @@
    until the next load; history entries have increasing ids, so a new one sorts last but is still only included if it
    exists when the last page is read. Nothing already there is lost or repeated. The next load (every refresh after a
    change, and every sign-in) reads the current data; history gaps are shown as such (see history()). */
-import type { RoleStatus, Stage } from "../data/fixtures";
+import type { ReqTier, RoleStatus, Stage } from "../data/fixtures";
 import { days } from "../lib/dates";
 
 export interface DbRole { id: string; title: string; location: string; status: RoleStatus; openedOn: string; recruiterName: string }
@@ -34,8 +36,27 @@ export interface DbNote {
   id: string; submissionId: string; eventId: number; kind: "decline" | "feedback";
   about: string | null; text: string; category: string | null; authorMemberId: string; createdAt: string;
 }
-/** `notes` is null when the database has no client notes yet (milestone 2 not applied): decisions are then unavailable. */
-export interface Workspace { clientId: string; roles: DbRole[]; people: Map<string, DbPerson>; subs: DbSubmission[]; moves: DbMove[]; events: DbEvent[]; notes: DbNote[] | null }
+/** A role's description (milestone 3; not versioned). Null or empty parts were not provided and are not shown. */
+export interface DbRoleInfo { summary: string | null; responsibilities: string[]; jobDescription: string | null; holdNote: string | null }
+export interface DbRequirement { id: string; position: number; text: string; tier: ReqTier }
+/** A role's agreed requirement set: the only set the database returns to clients. Requirements in position order. */
+export interface DbRequirementSet { id: string; roleId: string; version: number; label: string; agreedOn: string; requirements: DbRequirement[] }
+export type DbEvidenceStatus = "supported" | "partly_supported" | "not_evidenced" | "confirmed_not_met";
+/** `source` is null when none was recorded (only allowed for unevidenced rows); it is never made up. */
+export interface DbEvidence { requirementId: string; status: DbEvidenceStatus; evidence: string; source: string | null }
+/** A submission's published package (the Summary tab), with exactly one evidence row per requirement of its set. */
+export interface DbPackage {
+  id: string; submissionId: string; version: number; setId: string; whyShared: string; strengths: string[]; pointsToClarify: string[];
+  keyFacts: { label: string; value: string }[]; evidence: Map<string, DbEvidence>;
+}
+/** Milestone 3 content. Sets are keyed by role, packages by submission; a missing entry means nothing is shared. */
+export interface DbContent { roleInfo: Map<string, DbRoleInfo>; sets: Map<string, DbRequirementSet>; packages: Map<string, DbPackage> }
+/** `notes` is null when the database has no client notes yet (milestone 2 not applied): decisions are then unavailable.
+    `content` is null when milestone 3 is not applied: descriptions, requirements and summaries are then not connected. */
+export interface Workspace {
+  clientId: string; roles: DbRole[]; people: Map<string, DbPerson>; subs: DbSubmission[]; moves: DbMove[]; events: DbEvent[]; notes: DbNote[] | null;
+  content: DbContent | null;
+}
 
 interface Result { data: Record<string, unknown>[] | null; error: unknown }
 export interface PageQuery extends PromiseLike<Result> {
@@ -67,6 +88,14 @@ const oneOf = <T extends string>(row: Record<string, unknown>, k: string, allowe
   return v as T;
 };
 const date = (row: Record<string, unknown>, k: string) => { const v = text(row, k); if (!DATE.test(v)) throw new Bad(`unexpected ${k}`); return v; };
+const optText = (row: Record<string, unknown>, k: string) => (row[k] === null ? null : text(row, k));
+const int = (row: Record<string, unknown>, k: string, min = 1) => { const v = row[k]; if (!Number.isInteger(v) || (v as number) < min) throw new Bad(`unexpected ${k}`); return v as number; };
+const list = (row: Record<string, unknown>, k: string, allowNull = false): string[] => {
+  const v = row[k];
+  if (v === null && allowNull) return [];
+  if (!Array.isArray(v) || v.some((x) => typeof x !== "string" || x.trim() === "")) throw new Bad(`unexpected ${k}`);
+  return v as string[];
+};
 
 /** Postgres orders uuid keys by their bytes, which for the canonical lower-case text form is plain string order. */
 const after = (a: unknown, b: unknown) => (typeof a === "number" && typeof b === "number" ? a > b : typeof a === "string" && typeof b === "string" && a > b);
@@ -99,12 +128,21 @@ async function rows(db: WorkspaceDb, table: string, cols: string, clientId: stri
 }
 
 export async function loadWorkspace(db: WorkspaceDb, clientId: string): Promise<Workspace> {
-  const [roleRows, personRows, subRows, eventRows, noteRows] = await Promise.all([
+  const [roleRows, personRows, subRows, eventRows, noteRows, setRows, packageRows] = await Promise.all([
     rows(db, "roles", "id, client_id, title, location, status, opened_on, recruiter_name", clientId),
     rows(db, "people", "id, client_id, name, headline, location", clientId),
     rows(db, "submissions", "id, client_id, role_id, person_id, stage, shared_on, publication, version", clientId),
     rows(db, "submission_events", "id, submission_id, client_id, submission_version, kind, to_stage, occurred_on, actor_kind, actor_member_id", clientId),
     rows(db, "client_notes", "id, client_id, submission_id, event_id, kind, about, text, category, author_member_id, created_at", clientId, "id", true),
+    rows(db, "role_requirement_sets", "id, client_id, role_id, version, label, status, agreed_on", clientId, "id", true),
+    rows(db, "submission_packages", "id, client_id, submission_id, role_id, requirement_set_id, version, state, why_shared, strengths, points_to_clarify, key_facts", clientId, "id", true),
+  ]);
+  /* Milestone 3 is read only when both of its first tables exist; one without the other is a partly applied migration. */
+  if ((setRows === null) !== (packageRows === null)) throw new Error("the database has only part of milestone 3; stopped rather than show part of it");
+  const [infoRows, reqRows, evidenceRows] = setRows === null ? [null, null, null] : await Promise.all([
+    rows(db, "roles", "id, client_id, summary, responsibilities, job_description, hold_note", clientId),
+    rows(db, "role_requirements", "id, client_id, set_id, position, text, tier", clientId),
+    rows(db, "requirement_evidence", "id, client_id, package_id, requirement_set_id, requirement_id, status, evidence, source_label", clientId),
   ]);
   const roles = roleRows.map((r) => ({ id: text(r, "id"), title: text(r, "title"), location: text(r, "location", true), status: oneOf(r, "status", STATUSES),
     openedOn: date(r, "opened_on"), recruiterName: text(r, "recruiter_name", true) }));
@@ -148,6 +186,7 @@ export async function loadWorkspace(db: WorkspaceDb, clientId: string): Promise<
     noted.add(note.eventId);
     return note;
   });
+  const content = setRows === null ? null : readContent(roles, subs, setRows, packageRows!, infoRows!, reqRows!, evidenceRows!);
   return {
     clientId,
     roles: roles.sort((a, b) => a.title.localeCompare(b.title)),
@@ -156,7 +195,69 @@ export async function loadWorkspace(db: WorkspaceDb, clientId: string): Promise<
     moves,
     events,
     notes,
+    content,
   };
+}
+
+const EVIDENCE: readonly DbEvidenceStatus[] = ["supported", "partly_supported", "not_evidenced", "confirmed_not_met"];
+type Rows = Record<string, unknown>[];
+
+/* Milestone 3 rows, checked as strictly as the rest: the database returns only agreed sets and published packages on them,
+   with complete evidence; anything else (a draft, a package on another set, a missing or extra evidence row) is an error. */
+function readContent(roles: DbRole[], subs: DbSubmission[], setRows: Rows, packageRows: Rows, infoRows: Rows, reqRows: Rows, evidenceRows: Rows): DbContent {
+  const roleIds = new Set(roles.map((r) => r.id)), subById = new Map(subs.map((s) => [s.id, s]));
+  const roleInfo = new Map<string, DbRoleInfo>();
+  for (const r of infoRows) {
+    const id = text(r, "id");
+    if (!roleIds.has(id)) throw new Bad("a role description for a role that was not returned");
+    roleInfo.set(id, { summary: optText(r, "summary"), responsibilities: list(r, "responsibilities", true), jobDescription: optText(r, "job_description"), holdNote: optText(r, "hold_note") });
+  }
+  const sets = new Map<string, DbRequirementSet>(), setById = new Map<string, DbRequirementSet>();
+  for (const r of setRows) {
+    if (r.status !== "agreed") throw new Bad("a requirement set that is not agreed was returned");
+    const set: DbRequirementSet = { id: text(r, "id"), roleId: text(r, "role_id"), version: int(r, "version"), label: text(r, "label"), agreedOn: date(r, "agreed_on"), requirements: [] };
+    if (!roleIds.has(set.roleId)) throw new Bad("a requirement set for a role that was not returned");
+    if (sets.has(set.roleId)) throw new Bad("two agreed requirement sets for one role");
+    sets.set(set.roleId, set);
+    setById.set(set.id, set);
+  }
+  for (const r of reqRows) {
+    const set = setById.get(text(r, "set_id"));
+    if (!set) throw new Bad("a requirement of a set that was not returned");
+    const req: DbRequirement = { id: text(r, "id"), position: int(r, "position"), text: text(r, "text"), tier: oneOf(r, "tier", ["must", "pref"] as const) };
+    if (set.requirements.some((x) => x.position === req.position)) throw new Bad("two requirements in one position");
+    set.requirements.push(req);
+  }
+  for (const set of sets.values()) set.requirements.sort((a, b) => a.position - b.position);
+  const packages = new Map<string, DbPackage>(), pkgById = new Map<string, DbPackage>();
+  for (const r of packageRows) {
+    if (r.state !== "published") throw new Bad("a package that is not published was returned");
+    const sub = subById.get(text(r, "submission_id"));
+    if (!sub) throw new Bad("a package for a submission that was not returned");
+    const set = setById.get(text(r, "requirement_set_id"));
+    if (!set || text(r, "role_id") !== sub.roleId || set.roleId !== sub.roleId) throw new Bad("a package that is not on its role's agreed requirements");
+    if (packages.has(sub.id)) throw new Bad("two published packages for one submission");
+    const facts = r.key_facts;
+    if (!Array.isArray(facts) || facts.some((f) => !f || typeof f !== "object" || typeof f.label !== "string" || typeof f.value !== "string" || !f.label.trim() || !f.value.trim()))
+      throw new Bad("unexpected key_facts");
+    const pkg: DbPackage = { id: text(r, "id"), submissionId: sub.id, version: int(r, "version"), setId: set.id, whyShared: text(r, "why_shared"),
+      strengths: list(r, "strengths"), pointsToClarify: list(r, "points_to_clarify"), keyFacts: facts.map((f) => ({ label: f.label, value: f.value })), evidence: new Map() };
+    packages.set(sub.id, pkg);
+    pkgById.set(pkg.id, pkg);
+  }
+  for (const r of evidenceRows) {
+    const pkg = pkgById.get(text(r, "package_id"));
+    if (!pkg) throw new Bad("evidence for a package that was not returned");
+    const reqId = text(r, "requirement_id"), set = setById.get(pkg.setId)!;
+    if (text(r, "requirement_set_id") !== pkg.setId || !set.requirements.some((q) => q.id === reqId)) throw new Bad("evidence for a requirement outside its package's set");
+    if (pkg.evidence.has(reqId)) throw new Bad("two evidence rows for one requirement");
+    const ev: DbEvidence = { requirementId: reqId, status: oneOf(r, "status", EVIDENCE), evidence: text(r, "evidence"), source: optText(r, "source_label") };
+    if (ev.source === null && ev.status !== "not_evidenced") throw new Bad("evidence without a source");
+    pkg.evidence.set(reqId, ev);
+  }
+  /* Complete or not shown: a published package must have evidence for every requirement of its set. */
+  for (const pkg of packages.values()) if (pkg.evidence.size !== setById.get(pkg.setId)!.requirements.length) throw new Bad("a package with incomplete evidence");
+  return { roleInfo, sets, packages };
 }
 
 /* ---- Derived views (pure) ---------------------------------------------------------------------------------------- */

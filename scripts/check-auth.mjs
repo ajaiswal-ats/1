@@ -58,7 +58,25 @@ const WORKSPACES = {
   c4: { roles: [], people: [], submissions: [], submission_events: [], client_notes: [] },
 };
 const FIRST_NAMES_C1 = ["Riley Offline", "Casey Offline", "Field Technician", "Dispatch Planner"];
-const control = { slowClient: null, failWorkspaceOnce: new Set(["c4"]), loseRpcAnswers: 0, holdRpc: null };
+/* Milestone 3 (role descriptions, agreed requirements, published packages), served only once `control.m3` is on. Before
+   that the made-up project answers like one without milestone 3 (PostgREST: 404, PGRST205). */
+const M3_TABLES = ["role_requirement_sets", "role_requirements", "submission_packages", "requirement_evidence"];
+const M3 = {
+  c1: {
+    roleInfo: { r11: { summary: "Install and service fictional equipment for the offline check.", responsibilities: ["Service visits across the region", "Keep maintenance records"], job_description: "Fictional job description for the offline check.", hold_note: null },
+                r12: { summary: null, responsibilities: null, job_description: null, hold_note: "On hold for the offline check." } },
+    role_requirement_sets: [row("c1", { id: "s11", role_id: "r11", version: 1, label: "Version 1 · 1 Oct 2026", status: "agreed", agreed_on: "2026-10-01" })],
+    role_requirements: [row("c1", { id: "q11", set_id: "s11", position: 1, text: "Field service experience", tier: "must" }), row("c1", { id: "q12", set_id: "s11", position: 2, text: "Forklift certificate", tier: "pref" })],
+    submission_packages: [row("c1", { id: "k11", submission_id: "5a1a0000-0000-4000-8000-000000000011", role_id: "r11", requirement_set_id: "s11", version: 1, state: "published",
+      why_shared: "Fictional reason for the offline check.", strengths: ["Fictional strength"], points_to_clarify: [], key_facts: [{ label: "Notice period", value: "2 weeks" }] })],
+    requirement_evidence: [row("c1", { id: "e11", package_id: "k11", requirement_set_id: "s11", requirement_id: "q11", status: "supported", evidence: "Five years of fictional field service.", source_label: "Interview 03:10" }),
+                           row("c1", { id: "e12", package_id: "k11", requirement_set_id: "s11", requirement_id: "q12", status: "not_evidenced", evidence: "Not mentioned.", source_label: null })],
+  },
+  c2: { roleInfo: {}, role_requirement_sets: [], role_requirements: [], submission_packages: [], requirement_evidence: [] },
+  c4: { roleInfo: {}, role_requirement_sets: [], role_requirements: [], submission_packages: [], requirement_evidence: [] },
+};
+const NO_ROLE_INFO = { summary: null, responsibilities: null, job_description: null, hold_note: null };
+const control = { slowClient: null, failWorkspaceOnce: new Set(["c4"]), loseRpcAnswers: 0, holdRpc: null, m3: false };
 /* client_move_stage, as the made-up server: same rules as the real function (stored result per key, version check,
    provisional stage rule). `loseRpcAnswers`: process the request, then drop the answer (an uncertain outcome). */
 const rpcKeys = new Map(), rpcCalls = [], unrecordedSends = [];
@@ -165,8 +183,13 @@ async function handle(route) {
     if (control.loseRpcAnswers > 0) { control.loseRpcAnswers--; return route.abort("connectionreset"); }
     return json(route, status, out);
   }
+  if (M3_TABLES.includes(table)) {
+    if (!control.m3) return json(route, 404, { code: "PGRST205", message: `Could not find the table 'public.${table}' in the schema cache` });
+    return json(route, 200, cid ? pageOf(M3[cid][table], u.searchParams) : []);
+  }
   if (table in WORKSPACES.c1) {
     if (!cid) return json(route, 200, []);
+    if (table === "roles" && control.m3) return json(route, 200, pageOf(WORKSPACES[cid].roles.map((r) => ({ ...r, ...(M3[cid].roleInfo[r.id] ?? NO_ROLE_INFO) })), u.searchParams));
     if (table === "roles" && control.failWorkspaceOnce.has(cid)) { control.failWorkspaceOnce.delete(cid); return json(route, 500, { message: "Internal error" }); }
     if (control.slowClient === cid) await new Promise((r) => setTimeout(r, 1500));   /* a slow answer, to test that it is ignored once stale */
     return json(route, 200, pageOf(WORKSPACES[cid][table], u.searchParams));
@@ -385,6 +408,30 @@ try {
   await A.waitForTimeout(1800);   /* the previous account's slow answers arrive now */
   { const t = await body(A); ck("the previous account's late answers are ignored", !FIRST_NAMES_C1.some((x) => t.includes(x)) && (await A.evaluate(() => window.__staleSeen)) === false); }
   control.slowClient = null;
+
+  /* Milestone 3 present: a published package on the Summary tab, the empty wording without one, and the role page. */
+  control.m3 = true;
+  await A.click("text=Sign out"); await waitH1(A, "Sign in");
+  await signIn(A, "active@example.com"); await waitClient(A, "Offline Test Client");
+  await A.evaluate(() => (location.hash = "#c-5a1a0000-0000-4000-8000-000000000011"));
+  ck("milestone 3: the Summary tab shows the published package", await waitText(A, ".tabp", "Why Revenue Optics shared Riley.") && (await A.innerText(".tabp")).includes("Fictional reason for the offline check."));
+  {
+    const t = await A.innerText(".tabp");
+    ck("milestone 3: requirement check on the agreed set, with statuses and evidence", t.includes("Requirements Version 1 · 1 Oct 2026") && t.includes("Field service experience") && t.includes("Supported") && t.includes("Not evidenced"));
+    ck("milestone 3: sources are plain text; a row without a source shows none", (await A.$$eval(".tabp .src", (els) => els.map((e) => e.innerText))).join("|") === "Source: Interview 03:10" && (await A.$(".tabp .src button")) === null);
+    ck("milestone 3: strengths, points to clarify and key facts", t.includes("Fictional strength") && t.includes("None recorded.") && t.includes("2 weeks"));
+  }
+  await shot(A, "m3-summary");
+  await A.evaluate(() => (location.hash = "#c-5a1a0000-0000-4000-8000-000000000014"));
+  ck("milestone 3: no package shared: the empty wording, not 'not connected'", await waitText(A, ".tabp", "No summary is currently shared for this candidate.") && !(await A.innerText(".tabp")).includes("not connected"));
+  await A.evaluate(() => (location.hash = "#role-r11"));
+  ck("milestone 3: role page with summary, responsibilities, job description and requirements", await waitH1(A, "Field Technician")
+    && await A.evaluate(() => ["Install and service fictional equipment", "What the role involves", "Keep maintenance records", "Read the full job description", "Forklift certificate", "Preferred", "Version 1 · 1 Oct 2026"]
+      .every((x) => document.body.innerText.includes(x)) && !document.body.innerText.includes("not connected yet.")));
+  await shot(A, "m3-role");
+  await A.evaluate(() => (location.hash = "#role-r12"));
+  ck("milestone 3: a role without an agreed set shows its hold note and no requirements box", await waitH1(A, "Dispatch Planner")
+    && await A.evaluate(() => document.body.innerText.includes("On hold for the offline check.") && !document.querySelector(".rd") && !document.body.innerText.includes("not connected yet.")));
 
   ck("the demo's saved actions are never written in Supabase mode", await A.evaluate(() => localStorage.getItem("ro-portal-demo-actions") === null));
   ck("every Supabase request went to the made-up offline project only", supabaseCalls.length > 0 && external.length === 0, external.join(", "));

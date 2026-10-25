@@ -43,6 +43,7 @@ id_rsa*
 id_ed25519*
 
 # Internal reference documents (kept out of the repository)
+/docs/reference/scoring-inputs/
 docs/reference/Candidate Scoring One-Page Starter.pdf
 docs/reference/*.pdf
 
