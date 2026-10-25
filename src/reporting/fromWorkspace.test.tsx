@@ -33,7 +33,7 @@ function ws(subs: SubSpec[], { steps = true, roles = [["r1", "Open"], ["r2", "On
   const rounds = new Map(subs.filter((x) => x.rounds?.length).map((x) => [x.id, x.rounds!.map((r, i) => ({ id: `${x.id}-i${i + 1}`, submissionId: x.id, round: i + 1, status: "requested",
     requestedOn: null, suggestedTimes: null, scheduledOn: null, timeText: null, interviewers: null, heldOn: null, feedbackRecordedOn: null, asOfVersion: 1, ...r } as DbInterview))]));
   return {
-    clientId: "c1", roles: roles.map(([rid, status]) => ({ id: rid, title: `Role ${rid}`, location: "", status, openedOn: "2026-09-01", recruiterName: "" })),
+    clientId: "c1", screening: null, roles: roles.map(([rid, status]) => ({ id: rid, title: `Role ${rid}`, location: "", status, openedOn: "2026-09-01", recruiterName: "" })),
     people: new Map(), subs: dbSubs, moves: [], events, notes: [], content: null,
     steps: steps ? { interviews: rounds, outcomes: new Map(), feedbackLinks: new Map() } : null,
   };

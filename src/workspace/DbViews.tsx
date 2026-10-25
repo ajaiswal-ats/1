@@ -304,7 +304,8 @@ function CandidateDetail({ ws, id, moves, memberId, today }: { ws: Workspace; id
             {TABS.map(([k, l]) => <button key={k} type="button" role="tab" data-tab={k} aria-selected={tab === k} onClick={() => setTab(k)}>{l}</button>)}
           </div>
           <div className="tabp" role="tabpanel">
-            {tab === "notes" ? <History ws={ws} sub={c} memberId={memberId} /> : tab === "summary" && ws.content ? <Summary ws={ws} sub={c} /> : <div className="rempty">{TAB_NOT_CONNECTED[tab]}</div>}
+            {tab === "notes" ? <History ws={ws} sub={c} memberId={memberId} /> : tab === "summary" && ws.content ? <Summary ws={ws} sub={c} />
+              : tab === "interview" && ws.screening ? <Screening ws={ws} sub={c} /> : <div className="rempty">{TAB_NOT_CONNECTED[tab]}</div>}
           </div>
         </div>
         <aside className="card act" aria-label="Next step"><div className="pad">
@@ -322,6 +323,35 @@ function CandidateDetail({ ws, id, moves, memberId, today }: { ws: Workspace; id
 /** One history line, in 2h's wording: "Revenue Optics shared Priya for this role", "You moved Priya to Interview". */
 /** The Summary tab (2h's markup): the submission's published package, if one is shared, on its role's agreed requirements.
     Sources are plain text here (the screening interview and resume tabs are not connected). Nothing is filled in. */
+/* The Screening interview tab (milestone 6): the client-safe summary Revenue Optics reviewed for the client, with the
+   published package. The reviewed layout without the demo's simulated player: key moments are descriptive text at
+   approximate minutes, with nothing to play or seek. */
+export function Screening({ ws, sub }: { ws: Workspace; sub: DbSubmission }) {
+  const s = ws.screening?.get(sub.id);
+  if (!s) return <p className="muted">No screening interview has been shared for this candidate.</p>;
+  return (
+    <>
+      <div className="sec-h"><h2>Screening interview with Revenue Optics</h2></div>
+      <p className="small muted" style={{ margin: "-6px 0 14px" }}>{`${fd(s.callOn)} ${year(s.callOn)} · ${s.durationMinutes} minutes · ${s.recruiterName}, Revenue Optics`}</p>
+      <div className="ivgrid">
+        <div>
+          <h3>Key moments</h3>
+          <p className="xs muted" style={{ margin: "4px 0 0" }}>Topics Revenue Optics noted, at about the minute they came up. No recording is shared in the portal.</p>
+          {s.keyMoments.length ? <ul className="moments">{s.keyMoments.map((m) => <li key={m.minute}><span className="num muted">{`About ${m.minute} min`}</span><span>{m.label}</span></li>)}</ul>
+            : <p className="muted small">None noted.</p>}
+        </div>
+        <div>
+          <div className="box"><h3>Short summary</h3><p style={{ margin: "6px 0 0" }}>{s.summary}</p></div>
+          <div className="box" style={{ marginTop: 12 }}><h3>Recruiter notes</h3>
+            {s.notesForClient ? <><p style={{ margin: "6px 0 0" }}>{s.notesForClient}</p><p className="xs muted" style={{ margin: "8px 0 0" }}>{`${s.recruiterName}, Revenue Optics`}</p></>
+              : <p className="muted small" style={{ margin: "6px 0 0" }}>None shared.</p>}
+          </div>
+        </div>
+      </div>
+    </>
+  );
+}
+
 export function Summary({ ws, sub }: { ws: Workspace; sub: DbSubmission }) {
   const pkg = ws.content?.packages.get(sub.id), set = ws.content?.sets.get(sub.roleId);
   if (!pkg || !set || set.id !== pkg.setId) return <div className="rempty">No summary is currently shared for this candidate.</div>;

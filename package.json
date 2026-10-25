@@ -23,6 +23,7 @@
     "db:seed:generate": "node scripts/db/gen-seed.mjs",
     "db:seed:generate:m3": "node scripts/db/gen-seed-m3.mjs",
     "db:seed:generate:m4": "node scripts/db/gen-seed-m4.mjs",
+    "db:seed:generate:m6": "node scripts/db/gen-seed-m6.mjs",
     "db:users": "node scripts/db/users.mjs",
     "db:test:sql": "node scripts/db/test-sql.mjs",
     "db:test:api": "vitest run --config vitest.db.config.mjs",

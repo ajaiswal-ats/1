@@ -60,7 +60,7 @@ const WORKSPACES = {
 const FIRST_NAMES_C1 = ["Riley Offline", "Casey Offline", "Field Technician", "Dispatch Planner"];
 /* Milestone 3 (role descriptions, agreed requirements, published packages), served only once `control.m3` is on. Before
    that the made-up project answers like one without milestone 3 (PostgREST: 404, PGRST205). */
-const M3_TABLES = ["role_requirement_sets", "role_requirements", "submission_packages", "requirement_evidence", "client_interviews", "offer_outcomes", "interview_feedback"];
+const M3_TABLES = ["role_requirement_sets", "role_requirements", "submission_packages", "requirement_evidence", "client_interviews", "offer_outcomes", "interview_feedback", "screening_summaries"];
 const M3 = {
   c1: {
     roleInfo: { r11: { summary: "Install and service fictional equipment for the offline check.", responsibilities: ["Service visits across the region", "Keep maintenance records"], job_description: "Fictional job description for the offline check.", hold_note: null },
@@ -75,9 +75,13 @@ const M3 = {
     client_interviews: [row("c1", { id: "i11", submission_id: "5a1a0000-0000-4000-8000-000000000011", round: 1, status: "held", requested_on: null, suggested_times: null, scheduled_on: null,
       time_text: null, interviewers: "Pat Example", held_on: "2026-10-06", feedback_recorded_on: null, as_of_version: 1 })],
     offer_outcomes: [], interview_feedback: [],
+    /* Milestone 6: Riley's published package has a client-safe screening summary (the call was before Riley was shared). */
+    screening_summaries: [row("c1", { id: "ss11", package_id: "k11", requirement_set_id: "s11", call_on: ago(6), duration_minutes: 25, recruiter_name: "Jamie Scott",
+      summary: "Fictional screening summary for the offline check.", notes_for_client: "Fictional notes written for the client.",
+      key_moments: [{ minute: 4, label: "Fictional first topic" }, { minute: 15, label: "Fictional second topic" }] })],
   },
-  c2: { roleInfo: {}, role_requirement_sets: [], role_requirements: [], submission_packages: [], requirement_evidence: [], client_interviews: [], offer_outcomes: [], interview_feedback: [] },
-  c4: { roleInfo: {}, role_requirement_sets: [], role_requirements: [], submission_packages: [], requirement_evidence: [], client_interviews: [], offer_outcomes: [], interview_feedback: [] },
+  c2: { roleInfo: {}, role_requirement_sets: [], role_requirements: [], submission_packages: [], requirement_evidence: [], client_interviews: [], offer_outcomes: [], interview_feedback: [], screening_summaries: [] },
+  c4: { roleInfo: {}, role_requirement_sets: [], role_requirements: [], submission_packages: [], requirement_evidence: [], client_interviews: [], offer_outcomes: [], interview_feedback: [], screening_summaries: [] },
 };
 const NO_ROLE_INFO = { summary: null, responsibilities: null, job_description: null, hold_note: null };
 const control = { slowClient: null, failWorkspaceOnce: new Set(["c4"]), loseRpcAnswers: 0, holdRpc: null, m3: false };
@@ -428,7 +432,17 @@ try {
     ck("milestone 3: strengths, points to clarify and key facts", t.includes("Fictional strength") && t.includes("None recorded.") && t.includes("2 weeks"));
   }
   await shot(A, "m3-summary");
+  /* Milestone 6: the Screening interview tab, client-safe text only, nothing playable. */
+  await A.click("[data-tab=interview]");
+  ck("milestone 6: the Screening interview tab shows the reviewed summary, notes for the client and key moments", await waitText(A, ".tabp", "Fictional screening summary for the offline check.")
+    && await A.evaluate(() => ["Screening interview with Revenue Optics", "25 minutes · Jamie Scott, Revenue Optics", "Fictional notes written for the client.", "About 4 min", "Fictional first topic", "About 15 min",
+      "No recording is shared in the portal."].every((x) => document.querySelector(".tabp").innerText.includes(x))));
+  ck("milestone 6: nothing playable: no player, controls, seek buttons, links or media", await A.evaluate(() => !document.querySelector(".tabp button, .tabp a, .tabp video, .tabp audio, .tabp iframe, .tabp .player, .tabp .pctl, .tabp [role=slider]")));
+  await shot(A, "m6-screening");
   await A.evaluate(() => (location.hash = "#c-5a1a0000-0000-4000-8000-000000000014"));
+  await A.click("[data-tab=interview]");
+  ck("milestone 6: no summary shared: the demo's empty wording, not 'not connected'", await waitText(A, ".tabp", "No screening interview has been shared for this candidate.") && !(await A.innerText(".tabp")).includes("not connected"));
+  await A.click("[data-tab=summary]");
   ck("milestone 3: no package shared: the empty wording, not 'not connected'", await waitText(A, ".tabp", "No summary is currently shared for this candidate.") && !(await A.innerText(".tabp")).includes("not connected"));
   await A.evaluate(() => (location.hash = "#role-r11"));
   ck("milestone 3: role page with summary, responsibilities, job description and requirements", await waitH1(A, "Field Technician")

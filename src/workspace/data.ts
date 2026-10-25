@@ -63,12 +63,21 @@ export interface DbOutcome { submissionId: string; status: "offer_made" | "offer
 /** Milestone 4 facts: interview rounds per submission (round order), outcomes per submission, and the feedback note
     linked to a round (by round id). */
 export interface DbSteps { interviews: Map<string, DbInterview[]>; outcomes: Map<string, DbOutcome[]>; feedbackLinks: Map<string, string> }
+/** A client-safe screening interview summary (milestone 6), reviewed by Revenue Optics and shown with the published package
+    it belongs to. Key moments are descriptive text at approximate minutes; there is no recording. `notesForClient` is null
+    when no notes were shared (internal recruiter notes are never stored or shown). */
+export interface DbScreening {
+  packageId: string; callOn: string; durationMinutes: number; recruiterName: string; summary: string; notesForClient: string | null;
+  keyMoments: { minute: number; label: string }[];
+}
 /** `notes` is null when the database has no client notes yet (milestone 2 not applied): decisions are then unavailable.
     `content` is null when milestone 3 is not applied: descriptions, requirements and summaries are then not connected.
-    `steps` is null when milestone 4 is not applied: next steps, Waiting on you and interviews are then not connected. */
+    `steps` is null when milestone 4 is not applied: next steps, Waiting on you and interviews are then not connected.
+    `screening` is null when milestone 6 is not applied (the Screening interview tab is then not connected); otherwise it
+    holds the summary of each visible package that has one, keyed by submission. */
 export interface Workspace {
   clientId: string; roles: DbRole[]; people: Map<string, DbPerson>; subs: DbSubmission[]; moves: DbMove[]; events: DbEvent[]; notes: DbNote[] | null;
-  content: DbContent | null; steps: DbSteps | null;
+  content: DbContent | null; steps: DbSteps | null; screening: Map<string, DbScreening> | null;
 }
 
 interface Result { data: Record<string, unknown>[] | null; error: unknown }
@@ -141,7 +150,7 @@ async function rows(db: WorkspaceDb, table: string, cols: string, clientId: stri
 }
 
 export async function loadWorkspace(db: WorkspaceDb, clientId: string): Promise<Workspace> {
-  const [roleRows, personRows, subRows, eventRows, noteRows, setRows, packageRows, interviewRows, outcomeRows, linkRows] = await Promise.all([
+  const [roleRows, personRows, subRows, eventRows, noteRows, setRows, packageRows, interviewRows, outcomeRows, linkRows, screeningRows] = await Promise.all([
     rows(db, "roles", "id, client_id, title, location, status, opened_on, recruiter_name", clientId),
     rows(db, "people", "id, client_id, name, headline, location", clientId),
     rows(db, "submissions", "id, client_id, role_id, person_id, stage, shared_on, publication, version", clientId),
@@ -152,7 +161,9 @@ export async function loadWorkspace(db: WorkspaceDb, clientId: string): Promise<
     rows(db, "client_interviews", "id, client_id, submission_id, round, status, requested_on, suggested_times, scheduled_on, time_text, interviewers, held_on, feedback_recorded_on, as_of_version", clientId, "id", true),
     rows(db, "offer_outcomes", "id, client_id, submission_id, status, recorded_on, as_of_version", clientId, "id", true),
     rows(db, "interview_feedback", "interview_id, client_id, submission_id, note_id", clientId, "interview_id", true),
+    rows(db, "screening_summaries", "id, client_id, package_id, requirement_set_id, call_on, duration_minutes, recruiter_name, summary, notes_for_client, key_moments", clientId, "id", true),
   ]);
+  if (screeningRows !== null && setRows === null) throw new Error("the database has milestone 6 without milestone 3; stopped rather than show part of it");
   const m4 = [interviewRows, outcomeRows, linkRows].filter((x) => x !== null).length;
   if (m4 !== 0 && m4 !== 3) throw new Error("the database has only part of milestone 4; stopped rather than show part of it");
   if (m4 === 3 && (setRows === null || noteRows === null)) throw new Error("the database has milestone 4 without milestone 2 or 3; stopped rather than show part of it");
@@ -207,6 +218,7 @@ export async function loadWorkspace(db: WorkspaceDb, clientId: string): Promise<
   });
   const content = setRows === null ? null : readContent(roles, subs, setRows, packageRows!, infoRows!, reqRows!, evidenceRows!);
   const steps = interviewRows === null ? null : readSteps(subs, events, notes!, interviewRows, outcomeRows!, linkRows!);
+  const screening = screeningRows === null ? null : readScreening(subs, content!, screeningRows);
   return {
     clientId,
     roles: roles.sort((a, b) => a.title.localeCompare(b.title)),
@@ -217,7 +229,30 @@ export async function loadWorkspace(db: WorkspaceDb, clientId: string): Promise<
     notes,
     content,
     steps,
+    screening,
   };
+}
+
+/* Milestone 6 rows, checked as strictly as the rest: only summaries of the visible (published) packages, one per package,
+   on the package's own requirements, with valid dates, length and key moments. Anything else stops the load. */
+function readScreening(subs: DbSubmission[], content: DbContent, rows: Rows): Map<string, DbScreening> {
+  const pkgs = new Map([...content.packages.values()].map((p) => [p.id, p])), subById = new Map(subs.map((s) => [s.id, s]));
+  const out = new Map<string, DbScreening>();
+  for (const r of rows) {
+    const pkg = pkgs.get(text(r, "package_id"));
+    if (!pkg || text(r, "requirement_set_id") !== pkg.setId) throw new Bad("a screening summary for a package that was not returned");
+    if (out.has(pkg.submissionId)) throw new Bad("two screening summaries for one package");
+    const dur = int(r, "duration_minutes");
+    if (dur > 240) throw new Bad("unexpected duration_minutes");
+    const callOn = date(r, "call_on");
+    if (callOn > subById.get(pkg.submissionId)!.sharedOn) throw new Bad("a screening call after the candidate was shared");
+    const m = r.key_moments;
+    if (!Array.isArray(m) || m.some((x, i) => !x || typeof x !== "object" || Object.keys(x).sort().join() !== "label,minute" || !Number.isInteger(x.minute) || x.minute < 0
+      || x.minute >= dur || (i > 0 && x.minute <= m[i - 1].minute) || typeof x.label !== "string" || !x.label.trim())) throw new Bad("unexpected key_moments");
+    out.set(pkg.submissionId, { packageId: pkg.id, callOn, durationMinutes: dur, recruiterName: text(r, "recruiter_name"), summary: text(r, "summary"),
+      notesForClient: optText(r, "notes_for_client"), keyMoments: m.map((x) => ({ minute: x.minute, label: x.label })) });
+  }
+  return out;
 }
 
 const INTERVIEW: readonly DbInterview["status"][] = ["requested", "scheduled", "held", "cancelled"];

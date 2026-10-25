@@ -14,8 +14,10 @@ export const PASSWORDS = { harbor: "offline-pw-harbor", northwind: "offline-pw-n
 const EMAILS = { harbor: "portal-test-harbor@example.com", northwind: "portal-test-northwind@example.com", harborInactive: "portal-test-harbor-inactive@example.com", noMembership: "portal-test-no-membership@example.com" };
 
 /** `maxRows`: the server's row cap per request, like Supabase's "Max rows" (1,000 by default). `m3`: apply milestone 3
-    (needs `m2`); `m3Seed`: also load its fictional content. `m4` / `m4Seed`: the same for milestone 4 (needs `m3`). */
-export async function createProject({ maxRows = 1000, m2 = true, m3 = m2, m3Seed = m3, m4 = m3, m4Seed = m4 } = {}) {
+    (needs `m2`); `m3Seed`: also load its fictional content. `m4` / `m4Seed`: the same for milestone 4 (needs `m3`).
+    `m6` / `m6Seed`: milestone 6 (needs `m3`; its seed needs `m3Seed`). Off unless asked for: its seed publishes new package
+    versions, and the earlier milestones' tests describe the state before it. */
+export async function createProject({ maxRows = 1000, m2 = true, m3 = m2, m3Seed = m3, m4 = m3, m4Seed = m4, m6 = false, m6Seed = m6 } = {}) {
   const db = new PGlite();
   await db.exec(`
     create role anon nologin; create role authenticated nologin; create role service_role nologin;
@@ -38,6 +40,8 @@ export async function createProject({ maxRows = 1000, m2 = true, m3 = m2, m3Seed
   if (m3 && m3Seed) await db.exec(read("supabase/seed/m3_fictional.sql"));
   if (m4) await db.exec(read("supabase/migrations/20261027120000_m4_interviews_outcomes.sql"));
   if (m4 && m4Seed) await db.exec(read("supabase/seed/m4_fictional.sql"));
+  if (m6) await db.exec(read("supabase/migrations/20261028120000_m6_screening_summaries.sql"));
+  if (m6 && m6Seed) await db.exec(read("supabase/seed/m6_fictional.sql"));
   const ids = Object.fromEntries((await db.query("select email, id from auth.users")).rows.map((r) => [r.email, r.id]));
   return { db, ids, fetch: makeFetch(db, ids, maxRows) };
 }
@@ -131,6 +135,7 @@ export async function snapshot(db) {
     tables.push("public.role_requirement_sets", "public.role_requirements", "public.submission_packages", "public.requirement_evidence");
   if ((await db.query("select to_regclass('public.client_interviews') is not null as m4")).rows[0].m4)
     tables.push("public.client_interviews", "public.offer_outcomes", "public.interview_feedback");
+  if ((await db.query("select to_regclass('public.screening_summaries') is not null as m6")).rows[0].m6) tables.push("public.screening_summaries");
   const out = {};
   for (const t of tables) out[t] = (await db.query(`select coalesce(json_agg(t order by t::text), '[]')::text as j from ${t} t`)).rows[0].j;
   return out;

@@ -1,0 +1,22 @@
+{
+  "screening": 9,
+  "packages": 26,
+  "evidence": 106,
+  "packageStates": {
+    "published": 14,
+    "draft": 1,
+    "paused": 1,
+    "withdrawn": 1,
+    "superseded": 9
+  },
+  "harborVisible": {
+    "packages": 11,
+    "evidence": 48,
+    "screening": 9
+  },
+  "northwindVisible": {
+    "packages": 0,
+    "evidence": 0,
+    "screening": 0
+  }
+}

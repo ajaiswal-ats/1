@@ -24,7 +24,7 @@ function ws(x: Spec = {}): { ws: Workspace; s: DbSubmission } {
   return {
     s,
     ws: {
-      clientId: "c1", roles: [{ id: "r1", title: "Role", location: "", status: x.role ?? "Open", openedOn: "2026-09-01", recruiterName: "" }],
+      clientId: "c1", screening: null, roles: [{ id: "r1", title: "Role", location: "", status: x.role ?? "Open", openedOn: "2026-09-01", recruiterName: "" }],
       people: new Map([["p1", { id: "p1", name: "Pat Example", headline: "", location: "" }]]), subs: [s], moves: [], events: evs, notes,
       content: { roleInfo: new Map(), sets: new Map([["r1", { id: "set1", roleId: "r1", version: 1, label: "Version 1", agreedOn: "2026-09-01",
         requirements: [{ id: "q1", position: 1, text: "A", tier: "must" }, { id: "q2", position: 2, text: "B", tier: "must" }] }]]), packages: new Map(pkg ? [["s1", pkg]] : []) },

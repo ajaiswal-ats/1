@@ -147,9 +147,9 @@ describe("client isolation and publication", () => {
     const c = await signIn(await createProject());
     page(await c.load(), TODAY);
     const tables = [...new Set(c.paths.filter((x) => x.startsWith("/rest/v1/")).map((x) => x.slice(9)))].sort();
-    expect(tables.filter((t) => /search|sourc|screen/i.test(t))).toEqual([]);
+    expect(tables.filter((t) => /search|sourc|screened/i.test(t))).toEqual([]);
     const allowed = ["client_interviews", "client_members", "client_notes", "clients", "interview_feedback", "offer_outcomes", "people", "requirement_evidence",
-      "role_requirement_sets", "role_requirements", "roles", "submission_events", "submission_packages", "submissions"];
+      "role_requirement_sets", "role_requirements", "roles", "screening_summaries", "submission_events", "submission_packages", "submissions"];
     expect(tables.filter((t) => !allowed.includes(t))).toEqual([]);
     expect(tables).toEqual(expect.arrayContaining(["submissions", "submission_events", "client_interviews", "offer_outcomes"]));
   });
