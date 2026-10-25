@@ -1,128 +1,127 @@
-# Client Portal V1
+# Revenue Optics Talent Solutions: Client Portal V1
 
-**Delivery checklist (25 Oct 2026):** `../akansha-task-checklist.md` is the single active queue for portal delivery, Manatal integration and internal scoring. It is local project context and is not included in a fresh repository clone. This README records implementation and verification evidence, not a competing task list. Private scoring inputs are local under `docs/reference/scoring-inputs/` and excluded from Git in their entirety; do not copy their contents into code, issues or deployments.
+## 1. Project purpose
+A client workspace for Revenue Optics Talent Solutions. Hiring managers at a client company see only their own company's roles and the candidates Revenue Optics has shared with them, read the reviewed evidence behind each candidate, record decisions and interview feedback, and follow hiring progress. Recruiters continue to work in Manatal; the portal is the client-facing side.
 
-The Talent Solutions client portal, rebuilt from the `client-workspace-v1-visual-2h` prototype. It runs in two separate modes: the **demo** (default), the reviewed workspace with fictional local data, where client actions are demo changes saved in this browser and nothing is sent anywhere; and **Supabase mode**, which signs in to the development Supabase project with fictional test accounts. It has an internal Vercel test deployment (below); Manatal and notifications are not integrated.
+The portal runs in two modes:
+- **Demo mode** (default): the approved workspace design with fictional local data. Client actions are saved only in the browser; nothing is sent anywhere.
+- **Supabase mode**: the same screens backed by a Supabase (Postgres) development database with fictional test accounts and fictional data.
 
-## Status (checkpoint, 24 Oct 2026)
-**Complete and verified on the hosted development project** (fictional data only; baseline restored afterwards: 15 submissions, 26 events, 3 memberships, no portal moves or idempotency keys)
-- Demo workspace: shell, Candidates, candidate page with actions, Roles, Hiring progress, persistence. Matches 2h pixel for pixel (`compare:*`). Unchanged by Supabase mode.
-- Database milestone 1: tenancy, published/unpublished submissions, versioned stage history, idempotent `client_move_stage`. SQL Editor access tests 123/123, read-only Auth and Data API checks, API stage-change tests with targeted restore. See `supabase/README.md`.
-- Supabase mode, sign-in and session (`src/auth/`): invitation-only email and password sign-in, session restore and refresh, sign-out, account changes in other tabs, and the no-access state for the inactive and unassigned accounts. Checked by hand with all four test accounts.
-- Supabase mode, database-backed lists (`src/workspace/`): Roles, role pages, Candidates (pipeline and list) and candidate pages read the signed-in member's own data through row-level security. Harbor and Northwind isolation checked by hand, including account switching.
-- Supabase mode, stage changes through `client_move_stage`: version sent with each move, one idempotency key per intended move (reused for retries), success only on the server's confirmation followed by a refresh, stale versions reported as conflicts (no silent retry), no answer treated as uncertain with an automatic retry and "Check again" using the same key, and late answers ignored after sign-out or an account change. Checked by hand: a normal move, a two-tab conflict, a provisional Offer, isolation, and Priya Raman's uncertain → Check again → saved path (request blocked in DevTools). Each manual run was recorded by the development test-run recorder and cleaned up with SQL generated from its exact keys.
+All data in this repository and in the development database is fictional. No real candidate data has been loaded.
 
-- Supabase mode, candidate history (read-only): the candidate page's Notes and history tab lists the submission's history from the database, in version order (shown newest first) with dates. "You" only for the signed-in member's own recorded changes; "Client team" for another member or a client change recorded without who made it; "Revenue Optics" for its entries. Missing entries are reported, not invented. Checked by hand: Taylor Brooks, Regional Sales Manager (both entries, their order, the current stage and the on-hold restriction).
-- Workspace reads are paginated (keyset by id, until an empty page), so the API's per-request row cap cannot silently truncate lists, counts or history; a page out of order, a failed page or the 200-page safety limit stops the load with an error instead of showing part of it. Pages are separate requests, not one snapshot: a row added during a load may be missed until the next load. Tested offline, including caps below the page size.
-- Sign-in: a pending sign-in superseded by another tab's sign-in (or a sign-out) can no longer overwrite the current account; storage-quota failures get their own message. Tested offline, including with the pinned supabase-js.
-- Database milestone 2, decline and interview feedback (`client_notes`, `client_decline`, `client_add_feedback`; `supabase/README.md`): applied to the hosted project. Post-migration check all OK; SQL Editor access tests 65/65 (rolled back). Their rules are development-only (D3); saving a decision notifies nobody and does not update Manatal.
-- Supabase mode, decline and feedback on the candidate page: checked by hand in one recorded run (24 Oct 2026): Aisha Bello, Field Sales Representative, declined from To review (saved); feedback for Jordan Ellis, Inside Sales Leader, saved with the stage unchanged at Interview; a move sent with the version from before that feedback refused as a version conflict, nothing saved. Cleaned up with SQL generated from the run's exact keys: all OK, baseline 15 / 26 / 3, no notes, portal decisions or run keys left.
-  A second recorded run: Taylor Brooks, Regional Sales Manager (on-hold role at Interview) shows stage changes paused, Decline disabled and interview feedback available, nothing sent; and one more normal decline for Aisha Bello (saved, not interrupted). Cleaned up the same way: all OK, Aisha back at To review v1, baseline 15 / 26 / 3, no notes, portal decisions or run keys left.
-- Database milestone 3, role descriptions, versioned requirement sets and published candidate summaries (`supabase/README.md`): applied and seeded on the hosted project (fictional data). SQL Editor access tests 63/63 (rolled back); the post-seed check all OK afterwards. Clients read only; no scores of any kind.
-- Supabase mode, role pages and the Summary tab (milestone 3): checked by hand on the hosted development data, with the local build of this checkpoint: Taylor Brooks' Summary (why shared, requirement check, strengths, points to clarify, key facts); the job descriptions on two Harbor role pages; Daniel Okafor's Summary hidden ("No summary is currently shared for this candidate.": his packages are withdrawn and paused); Northwind's role showing only its Version 2 requirements, with Robin Hale's package on the superseded Version 1 hidden. Tested offline in addition: the role pages and all 11 visible Summary tabs match the demo's text.
-- **Pending (not yet verified on the hosted project):** a decision request with no answer (same-key automatic retry, "Check again", saved once). Tested offline only; the hosted check was the stage-move version (Priya Raman).
-- Milestone 3 hosted Data API reads: verified by the read-only hosted Auth and Data API checks for milestones 1-6 run on 25 Oct 2026 IST (Aakash; `npm run db:api:read -- --confirm`, public key and the four test users): all checks passed (139 GET data reads with row identities, client/publication links and empty results for known hidden and other-client rows; sign-ins, session checks and the wrong-password refusal), and all four sign-outs returned HTTP 204.
-- **Pending for milestone 3:** a test with two real concurrent database sessions (the locks are in place and every ordering is tested one after the other offline; actual lock waits are not exercised).
+## 2. Current capabilities and implementation status
 
-**Internal test deployment** (25 Oct 2026 IST): https://client-portal-v1-taupe.vercel.app, commit `456fb86` (milestone 6 screening summaries, `9083838`, plus a documentation correction), Supabase mode against the hosted development project.
-This is an internal test deployment using shared fictional data, not a production-ready client portal. Manatal, notifications and the remaining candidate-detail and reporting features are not connected.
-- Checked from outside, read-only (no sign-in, no credentials, no data requests; 25 Oct 2026 IST): the build embeds commit `456fb86` (a production build from `main`); its sign-in code is byte for byte the local build of that commit apart from one bundle file name and includes milestone 6; Supabase mode, test-run recorder off, no secret key and no Manatal address; the public sign-in page shows sign-in only, sends no Supabase request before sign-in, and logs no console or page errors.
-- Verified on this deployment (Aakash, 25 Oct 2026 IST, read-only, no candidate actions): Taylor Brooks' Inside Sales Leader Screening interview tab content. Visual layout and the browser console after sign-in are not verified.
-- Earlier deployment (25 Oct 2026 IST, `26905ec`, milestone 5): checked from outside the same way: the build embedded commit `26905ec`; its sign-in code was byte for byte the local build of that commit apart from one bundle file name and included milestone 5; Supabase mode, test-run recorder off, no secret key and no Manatal address; the public sign-in page shows sign-in only, sends no Supabase request before sign-in, and logs no console or page errors.
-  On that deployment (Aakash, 25 Oct 2026 IST, read-only, no candidate actions): Harbor's Hiring progress counts and wording verified. Northwind was checked with the local build against the same hosted data, not repeated on the deployment. Visual layout and the browser console after sign-in are not verified.
-- Earlier deployment (25 Oct 2026 IST, `1e3d12b`, milestone 4, pushed together with the milestone 3 repair commit `58afff2`): checked from outside the same way; the build embedded commit `1e3d12b`. Its sign-in code was byte for byte the local tested build of `1e3d12b` apart from one bundle file name; Supabase mode, recorder off, only the public (anon) key; the public sign-in page logged no console or page errors. Milestone 4 was not checked by hand on that deployment after sign-in (it was checked with the local build against the same hosted data; see milestone 4 below).
-- Earlier deployment (25 Oct, `95ba363`, milestone 3): Taylor Brooks' Summary tab and the Regional Sales Manager role page verified by hand (Aakash); checked from outside the same way: the build embeds commit `95ba363`. Its sign-in code is byte for byte the local build of `95ba363` apart from one bundle file name, and includes milestone 3. Supabase mode, with the test-run recorder off and no recorder endpoint; only the public (anon) key of the development project, with no secret key and no Manatal address. The public sign-in page shows sign-in only (no sign-up or password reset, no workspace or demo data), sends no Supabase request before sign-in, and logs no console or page errors.
-- Earlier deployment (24 Oct, `d211f1a`): Harbor sign-in checked by hand (12 submissions, 11 people, 4 roles, the fictional-data notice, no test-recording banner).
-- Dedicated hosted Data API read verification: complete for the tested milestone 1-6 baseline (read-only hosted Auth and Data API checks for milestones 1-6 run on 25 Oct 2026 IST (Aakash; `npm run db:api:read -- --confirm`, public key and the four test users): all checks passed (139 GET data reads with row identities, client/publication links and empty results for known hidden and other-client rows; sign-ins, session checks and the wrong-password refusal), and all four sign-outs returned HTTP 204). It covers reads only; write paths, concurrency and the interrupted retry are not part of it.
-- Still pending: a test with two real concurrent database sessions, a hosted UI check of round-linked interview feedback, and the interrupted decline/feedback retry check (see above).
+### Implemented (Supabase mode, fictional data)
+- **Sign-in and access:** email and password sign-in for accounts created by the database owner (the portal has no sign-up or password-reset screens; server-side sign-up restrictions are not verified, see section 6), session restore and refresh, sign-out (including in other tabs), and a single "No workspace access" state for inactive or unassigned accounts. Each member sees only their own client's data, enforced by row-level security in the database.
+- **Roles and candidates:** role list and role pages (descriptions, agreed requirements), candidate pipeline and list, and candidate pages with the Summary tab (why shared, requirement check, strengths, points to clarify, key facts), Notes and history, and the Screening interview tab (client-safe reviewed summary and key moments as text; no recording or player).
+- **Client actions:** stage changes, decline with a note, general interview feedback, and feedback linked to a specific interview round. Every action sends the version the user saw and an idempotency key; conflicts are reported, unanswered requests are retried with the same key, and success is shown only after the server confirms it.
+- **Next steps and "Waiting on you":** derived in the portal from recorded facts (interview rounds, recorded offer outcomes, linked feedback, published summaries) and the same permission rules as the action controls. Missing information is shown as missing, never filled in.
+- **Hiring progress:** the four approved charts (Pipeline, Candidates by role, Time in stage, Weekly movement) computed from the same loaded data as the Candidates and Roles pages.
 
-**Provisional, for development testing only**
-- Client moves to Offer and Hired, and the rule behind them (open roles only; no moves out of Offer, Hired or Declined). Not approved for production (decision D3).
+### Provisional (development rules, not approved for production)
+- Which client actions are allowed, and when (for example client moves to Offer and Hired, and actions on on-hold or closed roles).
+- Role descriptions are not versioned, and who approved or published a candidate summary is not recorded.
+- Hiring progress uses UTC calendar days; the reporting time zone is undecided.
 
-**Milestone 4: applied, seeded and verified on the hosted development project on 25 Oct 2026 IST (fictional data); deployed as `1e3d12b` the same day (internal test deployment)**
-- Client interviews by round, recorded offer outcomes, and interview feedback linked to its round (`supabase/README.md`); in Supabase mode, next steps, "Waiting on you" (sidebar, Candidates chip and filter, Roles list, waiting-first ordering), interview status and requirement support, all from one derivation (`src/workspace/next.ts`) that uses the action controls' permission rules. Missing information is shown as missing: "Awaiting shared summary", "No client interview recorded", "Next step not recorded". Supabase-mode search is deferred.
-- Hosted SQL Editor access tests 48/48 (rolled back); the post-seed check all OK afterwards (25 Oct 2026 IST).
-- Checked by hand on the hosted development data with the local build (25 Oct 2026 IST): Harbor's Waiting on you count and filter (5); Taylor Brooks' interview feedback task on the on-hold Regional Sales Manager role; Northwind's cancelled newer round, with no task brought back for the older round.
-- **Pending for milestone 4:** the new round-linked feedback function (`client_add_interview_feedback`) has not been tested by hand through the hosted UI (it is covered by the SQL Editor access tests and offline); a test with two real concurrent database sessions; and the interrupted decline/feedback retry check (see above).
+### Not implemented
+- **Notifications and Manatal:** saving a stage change, decline or feedback records it in the portal database only. Nobody is notified and Manatal is not updated. Manatal integration has a prepared, unrun read-only feasibility harness (see section 7).
+- **Staff tools:** there is no staff interface for user administration or for writing, approving and publishing candidate content; development content is loaded by the database owner through reviewed seed scripts.
+- **Documents and recordings:** resumes, documents, transcripts and recording playback.
+- **Search in Supabase mode**, and Revenue Optics' internal search records (the Sourced and Screened steps are shown as "Not available").
+- **Scoring:** no scores, ratings or automated assessments exist in the portal or database.
 
-**Milestone 5: Hiring progress from database rows (frontend only; counts and wording verified read-only on the hosted development data, 25 Oct 2026 IST; deployed as part of `26905ec`)**
-- In Supabase mode, the four approved charts (Pipeline, Candidates by role, Time in stage, Weekly movement) use the demo's counting rules (`src/reporting/metrics.ts`) on rows built from the same loaded workspace as Candidates and Roles (`src/reporting/fromWorkspace.ts`). No migration and no new reads.
-- Stage history is the recorded entries in version order: stage moves and declines are moves; feedback (general or round-linked), interviews held and recorded outcomes are not. A history that does not add up is shown as an error, never guessed.
-- Sourced, Screened and "not progressed before sharing" are **Not available**, never 0: Revenue Optics' search records are not connected or fetched, and client visibility is undecided (D5).
-- Wording: client moves and declines are the client team's ("by your team"), not the signed-in member's. Weekly is activity recorded in the portal, in UTC Monday-to-Sunday weeks from today's UTC date; a 0 means nothing was recorded, not that nothing happened. No coverage start date is inferred.
-- Only candidates currently shared with the client are counted; withdrawn or unshared submissions are excluded by the publication rules, so earlier totals can go down. The demo is unchanged.
-- Tested offline: exact parity with the demo at the fixed demo date (all roles and each role), rolling weeks at a later date, consistency with the Candidates and Roles counts, skipped/backward/repeated moves and declines through the client functions, feedback leaving every chart unchanged, client isolation and publication filtering, and no search records requested.
-- Verified read-only with the local build against the hosted fictional data (Aakash, 25 Oct 2026 IST; no candidate actions, no SQL): Harbor and Northwind Hiring progress showed the expected counts and wording (Pipeline, Candidates by role, Time in stage, Weekly movement; Not available for Sourced/Screened; client-team decline wording; UTC and currently-shared scope notes; role filter and client isolation). Visual layout and the browser console were not recorded as verified on hosted data.
-- On the deployment (`26905ec`): Harbor's Hiring progress counts and wording verified read-only (25 Oct 2026 IST). Northwind not repeated on the deployment.
-- **Pending for milestone 5:** visual layout and browser console checks on hosted data; the reporting time zone (UTC until decided, R01); Sourced/Screened visibility (D5); whether withdrawn submissions should stay in historical reports (needs a decision and staff-side data, not a policy bypass).
+## 3. Architecture and data flow
+- **Frontend:** a single-page app (React, TypeScript, Vite) with hash routing. Demo mode reads the fictional dataset in `src/data/` through a provider that replays demo changes saved in the browser. Supabase mode uses `@supabase/supabase-js` with the project's **public key only**.
+- **Database:** Postgres on Supabase. Tables live in `public`; internal helpers and idempotency records in `app_private`. Row-level security limits every read to the signed-in member's active client and to published submissions. Clients write only through database functions (`client_move_stage`, `client_decline`, `client_add_feedback`, `client_add_interview_feedback`), which check membership, the submission version and the idempotency key in one transaction. Reviewed content (requirement sets, candidate summaries, evidence, screening summaries) is frozen once agreed or published, enforced by database triggers.
+- **Loading:** after sign-in the portal reads the member's account, then the workspace tables in keyset-paginated requests. Rows from another client, inconsistent rows or a partly applied database milestone stop the load with an error instead of showing partial data.
+- **Derived views:** next steps, "Waiting on you", interview status and Hiring progress are computed in the browser from the loaded rows (`src/workspace/next.ts`, `src/reporting/`), so every page's counts come from the same loaded workspace data.
+- **Hosting:** an internal Vercel deployment builds from `main` in Supabase mode against the development database. There is no server-side application code beyond the database functions.
+- **Database changes:** applied as reviewed SQL files in milestones (see `supabase/README.md`), each with a rollback, read-only checks and access tests.
 
-**Milestone 6: client-safe screening interview summaries (applied and seeded on the hosted development project, 25 Oct 2026 IST; fictional data; deployed as part of `456fb86`)**
-- The Screening interview tab in Supabase mode, from `screening_summaries` (`supabase/README.md`): reviewed, client-safe text only (date, length, recruiter, short summary, optional notes written for the client, key moments as "About N min" text). Internal recruiter notes, transcripts and recordings are not stored or shown; there is no player, seeking or link.
-- Added only while a package is a draft and frozen with it; hidden by the same publication rules as Summary evidence (paused, withdrawn, unpublished, superseded requirements). The fictional seed publishes a new package version with identical content rather than editing published packages.
-- Tested offline: SQL checks and access tests (42), dependency and rollback guards, the seed and cleanup paths, loader strictness, rendering with no playable elements, the browser check, and the demo's candidate page (unchanged).
-- Hosted development (Aakash, 25 Oct 2026 IST, SQL Editor): read-only baseline before the migration all OK (`m3_post_seed.sql`, `m4_post_seed.sql`, `m6_baseline.sql`); post-migration and post-seed checks passed; access tests 42/42 (rolled back); the post-seed check all OK again afterwards. Read-only content check with the local build: Taylor Brooks' Inside Sales Leader Screening interview tab passed. Visual layout and the browser console were not verified.
-- On the deployment (`456fb86`): Taylor Brooks' Inside Sales Leader Screening interview tab passed a read-only content check (25 Oct 2026 IST).
-- **Pending for milestone 6:** visual layout and console checks; the other candidates' tabs and Northwind were not checked by hand (covered offline); production decisions on which screening content clients may see (D5) and on recordings, consent and retention (P06, D6).
+## 4. Local setup
 
-**Provisional, for fictional development only (milestone 3)**
-- Role descriptions are not versioned; who approved and published a package is not recorded (D1, D2); packages on superseded requirements are hidden until re-reviewed. Production approval remains open.
-
-**Not connected yet (Supabase mode)**
-- Candidate details: resume (Summary, history, decision notes, next steps and interview status are connected; the Screening interview tab is connected by milestone 6). Search. Hiring progress beyond the built milestone 5 (search steps, a decided time zone). Staff tools to write, approve and publish packages (content is seeded by the owner).
-- Notifications and Manatal: saving a stage notifies nobody and does not update Manatal.
-
-**Manatal feasibility (prepared, not run)**
-- `manatal/FEASIBILITY-CHECKLIST.md` and a read-only harness (`node scripts/manatal/feasibility.mjs`): explicitly selected, admin-created dummy records only; GET only; redacted report. Needs Akansha's approval, a Manatal admin and a locally stored token (never in chat).
-
-**Development tools**
-- `npm run check:auth`: offline browser check of sign-in, lists and stage changes (stand-in Supabase, no network).
-- `npm run db:test:offline`: the real migration, seed, row-level security and supabase-js, in memory.
-- Development test-run recorder: with `VITE_DEV_RECORD_MOVES=true` in `.env.local`, `npm run dev` records each stage-change request's key, submission, seen version and stage before sending it (`supabase/runs/`, gitignored; no passwords or tokens). `npm run db:ui-moves:restore-sql -- <record>` writes the matching cleanup SQL; it is never run automatically. Off by default and absent from builds.
+Requirements: a current Node.js release (developed with Node 25) and npm.
 
 ```
 npm install
-npm run dev               # http://127.0.0.1:5173/
+npm run dev          # http://127.0.0.1:5173/ (demo mode by default)
 npm run typecheck
 npm run build
-npm test                  # reporting and candidate rules, views and empty states
-npm run compare:shell     # with the dev server running: the shell vs 2h at 1440×900, light and dark
-npm run compare:progress  # with the dev server running: Hiring progress vs 2h at 1280/1440/1920, light and dark
-npm run compare:candidates  # with the dev server running: Candidates vs 2h at 1280/1440/1920, light and dark
-npm run compare:candidate   # with the dev server running: candidate page and its actions vs 2h, light and dark
-npm run compare:roles       # with the dev server running: Roles and role pages vs 2h, before and after actions
-npm run check:persistence   # with the dev server running: demo changes across two tabs, and malformed saved data
-npm run check:auth          # Supabase sign-in and session states in a browser, fully offline (starts its own server on 5174)
+npm test             # unit and view tests
 ```
 
-The comparisons exit with an error on any unexpected difference. They open 2h read-only from `../client-workspace-v1-visual-2h` and write screenshots and diffs to `compare-output/`. See `ASSUMPTIONS.md` for the decisions made where 2h or the scope documents leave behaviour open.
+### Demo mode
+No configuration is needed. Without `.env.local`, or with `VITE_PORTAL_MODE=demo`, the portal runs the fictional demo.
 
-## Demo mode and Supabase mode
-By default the portal is the **demo**: the reviewed fictional workspace, unchanged. Supabase mode is chosen in `.env.local` (copy `.env.example`; gitignored) and needs a restart of `npm run dev`:
+### Supabase mode
+Copy `.env.example` to `.env.local` (Git-ignored), fill in the development project's URL and **public** key, set `VITE_PORTAL_MODE=supabase`, and restart `npm run dev`. Everything prefixed `VITE_` is built into the browser bundle, so only public values belong there; `npm run db:check-secrets` fails if a privileged value appears in browser or build files. A misconfigured Supabase mode shows a configuration error and never falls back to demo data. Test accounts are created by the database owner; their passwords are never stored in the repository.
 
+Database scripts use `supabase/.env.dev.local` (template: `supabase/.env.example`, Git-ignored). The database runbook, including the manual SQL Editor route used for the development project, is in `supabase/README.md`.
+
+`VITE_DEV_RECORD_MOVES` (development only, off by default, never in builds) records each client action's idempotency key before it is sent, so a manual test run can be cleaned up precisely; see `supabase/README.md`.
+
+### Further checks
+Self-contained (work from a fresh clone; no credentials or network):
 ```
-VITE_PORTAL_MODE=supabase
-VITE_SUPABASE_URL=https://<project-ref>.supabase.co
-VITE_SUPABASE_ANON_KEY=<the public key: publishable or legacy anon>
-# optional, development only: VITE_DEV_RECORD_MOVES=true (test-run recorder; see Status)
+npm run db:test:offline     # the real migrations, seeds, access rules and supabase-js, in memory (PGlite)
+npm run check:auth          # Supabase-mode screens in a browser against an offline stand-in (starts its own server)
+npm run db:check-secrets    # after npm run build: no privileged value in browser or build files
+npm run check:persistence   # with the demo-mode dev server running: demo changes across two tabs
+npm run db:api:read         # prints the read-only hosted API check plan; sends nothing without --confirm
 ```
 
-Only the public key may go there (everything prefixed `VITE_` is built into the browser bundle; `npm run db:check-secrets` fails on a secret key). In Supabase mode (`src/auth/`):
-- Sign-in with email and password, by invitation only: no sign-up and no password reset. The session is saved in this browser, restored on reload and refreshed automatically.
-- After sign-in, the user's own membership and client are read (row-level security). An inactive or unassigned account gets one "No workspace access" state: the database deliberately does not tell the browser which of the two it is.
-- An active member gets the reviewed shell with the client's name and the member's name and job title, the database-backed Roles and Candidates pages, and stage changes on the candidate page (see Status). Unconnected details are marked as such, never filled in.
-- Errors are shown as errors. Nothing ever falls back to the demo's fictional data; a misconfigured Supabase mode shows a configuration error.
-- Sign-out, or a different user signing in (including in another tab), clears the account from the screen at once.
+Design comparisons, which need the approved design prototype (`client-workspace-v1-visual-2h`, not part of this repository, placed in a folder next to the repository) and the demo-mode dev server running:
+```
+npm run compare:shell       # the shell at 1440×900, light and dark
+npm run compare:progress    # Hiring progress at 1280, 1440 and 1920 px, light and dark
+npm run compare:candidates  # Candidates at 1280, 1440 and 1920 px, light and dark
+npm run compare:candidate   # the candidate page and its actions, light and dark
+npm run compare:roles       # Roles and role pages, before and after actions
+```
+They exit with an error on any unexpected difference and write screenshots to `compare-output/` (Git-ignored). Set `APP_URL` if the dev server is not on `http://127.0.0.1:5173/`.
 
-## Layout
-- `src/styles/`: 2h's colours, base, shell, Hiring progress, Candidates, candidate page and Roles styles, copied verbatim
-- `src/components/`: sidebar, top bar, tooltip, toast, icons
-- `src/reporting/`: Hiring progress calculations (no React), with tests against 2h's reference numbers and stage-move scenarios
-- `src/progress/`: the Hiring progress page and its four charts
-- `src/data/`: the fictional dataset from 2h, and the provider every page reads it through (it replays the demo changes saved in this browser)
-- `src/domain/`: candidate rules and client actions shared by every page (no React)
-- `src/candidates/`: the Candidates page (Pipeline, List) and the candidate page with its actions
-- `src/roles/`: the Roles page and role pages
-- `src/auth/`: Supabase mode: configuration, session handling (no React), the account read, sign-in and account-state screens
-- `src/workspace/`: Supabase mode: workspace data and its state, stage changes (no React), and the database-backed pages
-- `scripts/dev/`: the development-only test-run recorder (a Vite dev-server plugin)
-- `src/lib/`: dates, hash routing, theme and remembered page controls
+## 5. Verification summary
+Detailed, dated results are in [VERIFICATION.md](VERIFICATION.md). In short:
+
+| Kind | What it covers | Status |
+|---|---|---|
+| Offline automated, self-contained | Unit and view tests; database migrations, access rules and client functions in an in-memory Postgres; Supabase-mode screens in a browser against a stand-in; demo persistence | Passing at the latest local runs (dated in VERIFICATION.md) |
+| Design comparisons (need the private prototype) | Demo pixel and text comparisons with the approved design | Passing at the latest local runs (dated in VERIFICATION.md) |
+| Hosted database (SQL Editor) | Post-migration and post-seed checks and rolled-back access tests for each database milestone, run by the project owner on the development project | Passed for milestones 1-4 and 6 |
+| Hosted API, read-only | Auth plus Data API reads as signed-out, inactive, unassigned and two client accounts: exact rows, client and publication links, and empty results for hidden and other-client rows | Passed for the milestone 1-6 baseline (25 Oct 2026) |
+| Hosted API, writes | Stage-change requests through the Data API with targeted restore | Passed for milestone 1; not repeated for later client functions |
+| Manual UI (hosted fictional data) | Selected read-only content checks and recorded action runs by the project owner | Partial; content only, not visual layout or console |
+| Deployment | Read-only checks of each internal deployment: embedded commit, Supabase mode, recorder off, public key only, public sign-in page | Passed for the current deployment |
+
+Still unverified: two real concurrent database sessions, an interrupted decline or feedback request on the hosted project, round-linked feedback through the hosted UI, and visual layout and console checks after sign-in on hosted data.
+
+## 6. Known limitations and production readiness
+This is an **internal test deployment with shared fictional data, not a production-ready client portal.** Before any real client or candidate data:
+- **Decisions needed:** who may take which client actions; who approves and publishes candidate content, and where approval is recorded; which candidate fields, screening content and internal counts (Sourced and Screened) clients may see; retention and deletion periods; candidate consent and any external AI processing; document delivery; hosting and security ownership; the reporting time zone; whether withdrawn submissions stay in historical reports.
+- **Sign-up and accounts:** the portal shows no sign-up or password-reset screens, but hiding them does not prevent sign-up through the Auth API. Server-side sign-up restrictions, the invitation and recovery flow, and access revocation are not yet verified.
+- **Saves are not notifications:** client actions are recorded in the portal database only. Notifications, Manatal write-back and how recruiters are told about a decision are not built; the screens say so.
+- **Operations:** environment separation (development versus production), monitoring and alerts, backup and restore, rollback drills and a security review are outstanding.
+- **Integration:** Manatal read and write behaviour is untested; any future sync must keep repeated legitimate stage transitions and must not overwrite portal decisions.
+- **Known technical limits:** workspace pages are separate requests, not one snapshot (a row added during a load can be missed until the next load); one inconsistent row stops the whole workspace load; history counts include only submissions currently shared with the client.
+
+## 7. Repository structure and supporting documentation
+| Path | Contents |
+|---|---|
+| `src/data/`, `src/domain/`, `src/candidates/`, `src/roles/`, `src/progress/`, `src/reporting/` | Demo dataset, shared candidate rules, pages and the Hiring progress calculations |
+| `src/auth/` | Supabase mode: configuration, session handling, sign-in and account-state screens |
+| `src/workspace/` | Supabase mode: data loading, client actions, derived next steps and the database-backed pages |
+| `src/components/`, `src/lib/`, `src/styles/` | Shared components, helpers and the approved styles |
+| `supabase/` | Migrations, rollbacks, seeds, read-only checks, SQL Editor access tests and the database runbook |
+| `scripts/db/` | Database tooling: checks, seeding, read-only hosted API checks, recorded-run cleanup and the secret scan |
+| `scripts/dev/` | The development-only test-run recorder |
+| `scripts/manatal/`, `manatal/` | The read-only Manatal feasibility harness and its checklist (not run) |
+| `tests/offline-db/` | In-memory database and end-to-end tests |
+| `scripts/*.mjs` | Design comparisons and browser checks |
+
+Supporting documentation in this repository:
+- [VERIFICATION.md](VERIFICATION.md): what has been verified, how, when, and what remains open.
+- [supabase/README.md](supabase/README.md): the database runbook (milestones, manual SQL Editor route, cleanup and rollback).
+- [manatal/FEASIBILITY-CHECKLIST.md](manatal/FEASIBILITY-CHECKLIST.md): the planned, read-only Manatal feasibility tests.
+- [.env.example](.env.example) and [supabase/.env.example](supabase/.env.example): setting names, without values.
+
+Product decisions, planning documents and internal scoring material are maintained by Revenue Optics outside this repository and are not part of it.

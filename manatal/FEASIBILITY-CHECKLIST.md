@@ -2,13 +2,13 @@
 
 **Goal:** replace the assumptions behind the portal's Manatal boundary with evidence, using **admin-created dummy records only**. No sync, outbox, webhooks, polling or portal integration code; no real candidates.
 
-**Evidence base:** `../ats-research/manatal-portal-integration-findings.md` (§4, §5, §7) and `../ats-research/evidence/manatal-api-notes.md`, `manatal-approval-notes.md`, `manatal-guest-portal-notes.md`. Tags as there: **[Doc]** documented, **[Test]** needs a controlled test, **[Not found]** not in the public docs, **[Inf]** inference.
+**Evidence base:** Revenue Optics' internal Manatal integration research (not part of this repository). Tags: **[Doc]** documented, **[Test]** needs a controlled test, **[Not found]** not in the public docs, **[Inf]** inference.
 
 ## Preconditions (before anything runs)
-- [ ] Akansha approves these tests (findings §7: "All tests need Akansha's approval… must not touch real candidate data").
+- [ ] The business owner approves these tests. All tests need that approval and must not touch real candidate data.
 - [ ] A Manatal admin creates, for this test only: a dummy organisation, a dummy job in it, a dummy candidate, and the match between them. The admin adds the tag **`portal-feasibility-dummy`** (or another agreed tag) to the dummy candidate.
-- [ ] The admin generates an API token (Administration > Features > Open API [Doc]; one page says to ask support [Doc, contradiction noted]). You save it in `manatal/.env.manatal.local` (`chmod 600`, gitignored). **It is never pasted into chat.** No scopes or read-only tokens are documented [Not found], so the harness enforces read-only use itself.
-- [ ] You copy `manatal/targets.example.json` to `manatal/targets.local.json` and fill in the four dummy ids and the tag, then set `"confirm_all_records_are_dummy": true`.
+- [ ] The admin generates an API token (Administration > Features > Open API [Doc]; one page says to ask support [Doc, contradiction noted]). The operator saves it in `manatal/.env.manatal.local` (`chmod 600`, gitignored). **It is never shared in messages, tickets or browser code.** No scopes or read-only tokens are documented [Not found], so the harness enforces read-only use itself.
+- [ ] The operator copies `manatal/targets.example.json` to `manatal/targets.local.json` and fill in the four dummy ids and the tag, then set `"confirm_all_records_are_dummy": true`.
 
 ## Step 1: read-only shape (`node scripts/manatal/feasibility.mjs --run --confirm-dummy`)
 What the harness does (see `scripts/manatal/feasibility-lib.mjs`; plan without network: `node scripts/manatal/feasibility.mjs`):
@@ -46,10 +46,10 @@ Done by hand or by a separate, reviewed script, only on the dummy match, and und
 | Set `is_active=false` (as a possible "drop") | `PATCH /matches/{id}/` | writable [Doc]; whether it is a drop [Test] |
 | Remove the test note | `DELETE …/notes/{id}/` | documented for candidate notes; for match notes [Test] |
 
-**Result:** evidence for D4 (whether client decisions are written to Manatal, as what, and by whom), and for how a client decline would map: a match note, a custom field, a drop, or nothing (a recruiter acts).
+**Result:** evidence for the open decision on whether client decisions are written to Manatal, as what, and by whom, and for how a client decline would map: a match note, a custom field, a drop, or nothing (a recruiter acts).
 
 ## Questions for Manatal support (optional, in parallel)
-From findings §7: webhook payload, signing, retries and delay; more webhook events (notes, attachments, resumes, deletions); whether file links expire or need the token; read-only or per-user tokens; a sandbox account; who issues tokens.
+From the internal research: webhook payload, signing, retries and delay; more webhook events (notes, attachments, resumes, deletions); whether file links expire or need the token; read-only or per-user tokens; a sandbox account; who issues tokens.
 
 ## Out of scope here
-Webhooks, polling, the outbox, any sync code, the `manatal_links` mapping table (designed in the M2 proposal §2; added later as its own migration once step 1 confirms id types), real candidates.
+Webhooks, polling, the outbox, any sync code, the `manatal_links` mapping table (to be added later as its own migration once step 1 confirms id types), real candidates.

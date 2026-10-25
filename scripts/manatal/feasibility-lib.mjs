@@ -3,7 +3,7 @@
    names and types, pipeline stage, activity types and timestamps. It never lists candidates, jobs or matches, never
    writes, and never keeps names, contact details, note text, custom-field values or file links.
    Evidence base: ../ats-research/manatal-portal-integration-findings.md §4, §7 and evidence/manatal-api-notes.md §2–§5.
-   Not run until a Manatal admin has created the dummy records and Akansha has approved the tests. */
+   Not run until a Manatal admin has created the dummy records and the business owner has approved the tests. */
 
 export const BASE_URL = "https://api.manatal.com/open/v3";   // [Doc] api-notes: https://api.manatal.com/open/v3/{ENDPOINT}
 export const MAX_REQUESTS = 9;                              // well under the documented 100 requests per 60 s per token
