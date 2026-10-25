@@ -39,11 +39,21 @@ This is an internal test deployment using shared fictional data, not a productio
 - Checked by hand on the hosted development data with the local build (25 Oct 2026 IST): Harbor's Waiting on you count and filter (5); Taylor Brooks' interview feedback task on the on-hold Regional Sales Manager role; Northwind's cancelled newer round, with no task brought back for the older round.
 - **Pending for milestone 4:** the new round-linked feedback function (`client_add_interview_feedback`) has not been tested by hand through the hosted UI (it is covered by the SQL Editor access tests and offline); dedicated hosted Data API checks; a test with two real concurrent database sessions; and the interrupted decline/feedback retry check (see above).
 
+**Milestone 5: Hiring progress from database rows (frontend only; built and tested offline; counts and wording verified read-only on the hosted development data, 25 Oct 2026 IST; not deployed)**
+- In Supabase mode, the four approved charts (Pipeline, Candidates by role, Time in stage, Weekly movement) use the demo's counting rules (`src/reporting/metrics.ts`) on rows built from the same loaded workspace as Candidates and Roles (`src/reporting/fromWorkspace.ts`). No migration and no new reads.
+- Stage history is the recorded entries in version order: stage moves and declines are moves; feedback (general or round-linked), interviews held and recorded outcomes are not. A history that does not add up is shown as an error, never guessed.
+- Sourced, Screened and "not progressed before sharing" are **Not available**, never 0: Revenue Optics' search records are not connected or fetched, and client visibility is undecided (D5).
+- Wording: client moves and declines are the client team's ("by your team"), not the signed-in member's. Weekly is activity recorded in the portal, in UTC Monday-to-Sunday weeks from today's UTC date; a 0 means nothing was recorded, not that nothing happened. No coverage start date is inferred.
+- Only candidates currently shared with the client are counted; withdrawn or unshared submissions are excluded by the publication rules, so earlier totals can go down. The demo is unchanged.
+- Tested offline: exact parity with the demo at the fixed demo date (all roles and each role), rolling weeks at a later date, consistency with the Candidates and Roles counts, skipped/backward/repeated moves and declines through the client functions, feedback leaving every chart unchanged, client isolation and publication filtering, and no search records requested.
+- Verified read-only with the local build against the hosted fictional data (Aakash, 25 Oct 2026 IST; no candidate actions, no SQL): Harbor and Northwind Hiring progress showed the expected counts and wording (Pipeline, Candidates by role, Time in stage, Weekly movement; Not available for Sourced/Screened; client-team decline wording; UTC and currently-shared scope notes; role filter and client isolation). Visual layout and the browser console were not recorded as verified on hosted data.
+- **Pending for milestone 5:** deployment and a check on the deployment; visual layout and console checks on hosted data; the reporting time zone (UTC until decided, R01); Sourced/Screened visibility (D5); whether withdrawn submissions should stay in historical reports (needs a decision and staff-side data, not a policy bypass).
+
 **Provisional, for fictional development only (milestone 3)**
 - Role descriptions are not versioned; who approved and published a package is not recorded (D1, D2); packages on superseded requirements are hidden until re-reviewed. Production approval remains open.
 
 **Not connected yet (Supabase mode)**
-- Candidate details: screening interview and resume (Summary, history, decision notes, next steps and interview status are connected). Search. Hiring progress. Staff tools to write, approve and publish packages (content is seeded by the owner).
+- Candidate details: screening interview and resume (Summary, history, decision notes, next steps and interview status are connected). Search. Hiring progress beyond the built milestone 5 (search steps, a decided time zone). Staff tools to write, approve and publish packages (content is seeded by the owner).
 - Notifications and Manatal: saving a stage notifies nobody and does not update Manatal.
 
 **Manatal feasibility (prepared, not run)**

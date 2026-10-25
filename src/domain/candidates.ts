@@ -11,7 +11,7 @@ export const waitingOnYou = (c: Submission) => c.next.who === "you";
 export const people = (list: Submission[]) => new Set(list.map((c) => c.pid)).size;
 export const initials = (name: string) => name.split(" ").map((x) => x[0]).join("").slice(0, 2);
 /** Submissions per stage, by latest saved stage. The one definition used by the board, the lists and the reports. */
-export const countByStage = (list: Submission[], stages: readonly Stage[]) => stages.map((s) => list.filter((c) => c.stage === s).length);
+export const countByStage = (list: Pick<Submission, "stage">[], stages: readonly Stage[]) => stages.map((s) => list.filter((c) => c.stage === s).length);
 export const roleOf = (data: Dataset, c: Submission) => data.roles.find((r) => r.id === c.role)!;
 /** The same person's submissions for other roles. */
 export const otherSubmissions = (data: Dataset, c: Submission) => data.subs.filter((x) => x.pid === c.pid && x.id !== c.id);

@@ -20,6 +20,12 @@ export const inRange = (d: string, a: string, b: string) => d >= a && d <= b;
 /** Mean rounded to one decimal place, or null when there is nothing to average (as in 2h). */
 export const avg = (v: number[]) => (v.length ? Math.round((v.reduce((a, b) => a + b, 0) / v.length) * 10) / 10 : null);
 
+/** The 6 full Monday-to-Sunday weeks before the week that contains `today` (UTC calendar days), oldest first. */
+export function weeksBefore(today: string): [string, string][] {
+  const monday = ms(today) - ((new Date(ms(today)).getUTCDay() + 6) % 7) * DAY;
+  return Array.from({ length: 6 }, (_, i) => { const a = monday - (6 - i) * 7 * DAY; return [iso(a), iso(a + 6 * DAY)]; });
+}
+
 /** The 6 full Monday-to-Sunday weeks before the demo date, as in 2h: 31 Aug – 11 Oct 2026. */
 export const WEEKS: [string, string][] = Array.from({ length: 6 }, (_, i) => {
   const a = ms("2026-08-31") + i * 7 * DAY;

@@ -2,9 +2,11 @@ import { Fragment, useState, type CSSProperties, type FormEvent, type ReactNode 
 import { CheckIcon, PinIcon, VideoIcon } from "../components/icons";
 import type { Stage } from "../data/fixtures";
 import { STAGES } from "../domain/candidates";
-import { fd } from "../lib/dates";
+import { fd, weeksBefore } from "../lib/dates";
 import { navFor } from "../lib/route";
+import { ProgressView } from "../progress/HiringProgress";
 import { Seg, plural, stageColor } from "../progress/shared";
+import { ReportDataError, reportData } from "../reporting/fromWorkspace";
 import { StatusChip } from "../roles/StatusChip";
 import { alsoFor, countByStage, forRole, history, person, roleFor, roleRow, uniquePeople, type DbEvidenceStatus, type DbRole, type DbSubmission, type HistoryEntry, type Workspace } from "./data";
 import { DECLINE_CATEGORIES } from "../domain/actions";
@@ -40,7 +42,6 @@ export const NO_MOVES: MovesProps = { account: "", state: { status: "idle" }, mo
 /** `memberId`: the signed-in member, so history can say "You" only for that member's own recorded changes. */
 export function WorkspacePage({ route, state, onRetry, today, moves = NO_MOVES, memberId = "" }: { route: string; state: WorkspaceState; onRetry(): void; today: string; moves?: MovesProps; memberId?: string }) {
   const current = navFor(route);
-  if (route === "progress") return <NotConnected title="Hiring progress" text="Hiring progress is not connected yet. Its reports need search records that are not in the database yet." />;
   if (state.status === "idle" || state.status === "loading") return <Notice title={titleFor(route)} role="status">Loading workspace data…</Notice>;
   if (state.status === "error") {
     return (
@@ -51,6 +52,7 @@ export function WorkspacePage({ route, state, onRetry, today, moves = NO_MOVES, 
     );
   }
   const ws = state.ws;
+  if (route === "progress") return <Progress ws={ws} today={today} />;
   if (route.startsWith("c-")) return <CandidateDetail ws={ws} id={route.slice(2)} moves={moves} memberId={memberId} today={today} />;
   if (route.startsWith("role-")) return <RoleDetail ws={ws} id={route.slice(5)} today={today} />;
   if (current === "roles") return <RolesList ws={ws} today={today} />;
@@ -74,6 +76,21 @@ const NotConnected = ({ title, text }: { title: string; text: string }) => (
     <div className="rempty" role="status">{text}</div>
   </>
 );
+
+/* ---- Hiring progress ---------------------------------------------------------------------------------------------- */
+
+/* The demo's four charts and counting rules, on rows from this same workspace snapshot (src/reporting/fromWorkspace.ts),
+   with today's UTC date and the 6 full weeks before it. */
+function Progress({ ws, today }: { ws: Workspace; today: string }) {
+  let data;
+  try { data = reportData(ws); } catch (e) {
+    if (!(e instanceof ReportDataError)) throw e;
+    return <Notice title="Hiring progress" role="alert" crit>Hiring progress could not be calculated: a candidate's recorded history does not add up. Nothing is shown in its place.</Notice>;
+  }
+  if (!data) return <NotConnected title="Hiring progress" text="Hiring progress is not connected yet: it needs interview and offer records (milestone 4) on this database." />;
+  return <ProgressView data={data} today={today} weeks={weeksBefore(today)} period="Fictional data · development"
+    asOf={`As of ${fd(today)} ${year(today)} (UTC) · candidates currently shared with your team; withdrawn or unshared candidates are not included`} />;
+}
 
 /* ---- Roles --------------------------------------------------------------------------------------------------------- */
 

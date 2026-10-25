@@ -1,12 +1,14 @@
 import { useLayoutEffect, useRef } from "react";
-import { WEEKS, fd } from "../lib/dates";
+import { fd } from "../lib/dates";
 import { TREND_MIN, weeklyTrend, type RoleFilter, type TrendPart, type WeekRow } from "../reporting/metrics";
-import { ChartHead, CountingInfo, EmptyBox, Legend } from "./shared";
+import { ChartHead, CountingInfo, EmptyBox, Legend, sharedScopeItem } from "./shared";
 
 const SERIES = { shared: ["Submitted", "var(--s1)"], held: ["Interviews held", "var(--s2)"] } as const;
 
-/* Weekly movement (2h locked Option A): grouped columns per week, with the computed trend line. */
-export function Weekly({ filter, weeks, scheduled }: { filter: RoleFilter; weeks: WeekRow[]; scheduled: number }) {
+/* Weekly movement (2h locked Option A): grouped columns per week, with the computed trend line.
+   `recorded` (Supabase mode): the counts are activity recorded in the portal, in UTC weeks; a 0 is not proof that
+   nothing happened, and when the portal's records begin is not known, so no week is treated as before coverage. */
+export function Weekly({ filter, weeks, scheduled, recorded = false }: { filter: RoleFilter; weeks: WeekRow[]; scheduled: number; recorded?: boolean }) {
   const T = weeklyTrend(weeks), plot = useRef<HTMLDivElement>(null);
   const describe = (x: TrendPart, n: string) => `${n}: ${x.last} in the latest 3 weeks vs ${x.prev} in the 3 before${x.ok ? "" : ` (fewer than ${TREND_MIN} in total, so no trend is stated)`}`;
   const empty = weeks.every((w) => !w.shared && !w.held);
@@ -24,22 +26,25 @@ export function Weekly({ filter, weeks, scheduled }: { filter: RoleFilter; weeks
     return () => removeEventListener("resize", fit);
   });
 
-  const head = <ChartHead title="Weekly movement" hint="Each week, Monday to Sunday." />;
+  const head = <ChartHead title="Weekly movement" hint={recorded ? "Activity recorded in the portal. Each week, Monday to Sunday (UTC)." : "Each week, Monday to Sunday."} />;
   const info = (
     <CountingInfo
       items={[
-        <><b>Weeks</b>{` run Monday to Sunday. Shown: the last 6 full weeks, ${fd(WEEKS[0][0])} – ${fd(WEEKS[5][1])}. The current week is added once it ends.`}</>,
-        <><b>Submitted:</b> candidates Revenue Optics shared with you, counted in the week of the shared date. A person shared for two roles counts twice.</>,
+        <><b>Weeks</b>{` run Monday to Sunday${recorded ? " (UTC dates)" : ""}. Shown: the last 6 full weeks, ${fd(weeks[0].a)} – ${fd(weeks[weeks.length - 1].b)}. The current week is added once it ends.`}</>,
+        ...(recorded ? [sharedScopeItem()] : []),
+        <><b>Submitted:</b>{` candidates Revenue Optics shared with ${recorded ? "your team" : "you"}, counted in the week of the shared date. A person shared for two roles counts twice.`}</>,
         <><b>Interviews held:</b>{` client interviews recorded as held, counted in the week they took place. Interviews still scheduled are not counted${scheduled ? ` (${scheduled} scheduled right now)` : ""}. Revenue Optics screening calls are not included.`}</>,
         <><b>Roles included:</b>{` ${filter === "all" ? "every role" : "the selected role"}, including roles that are on hold now, because these weeks have already happened. (Candidates by role still shows open roles by default.)`}</>,
-        <>A week with nothing recorded shows 0.</>,
+        recorded
+          ? <>These are events recorded in the portal. A week with nothing recorded shows 0: no submission or interview held was recorded that week, which does not prove that no recruiting activity happened.</>
+          : <>A week with nothing recorded shows 0.</>,
         ...(T ? [<><b>Trend line:</b>{` compares the latest 3 full weeks with the 3 before. ${describe(T.s, "Submitted")}. ${describe(T.h, "Interviews held")}. It describes direction only; no target is implied.`}</>] : []),
       ]}
       head={["Week starting", SERIES.shared[0], SERIES.held[0]]}
       rows={weeks.map((w) => [fd(w.a), w.shared, w.held])}
     />
   );
-  if (empty) return <>{head}<EmptyBox>No submissions or interviews held in these 6 weeks.</EmptyBox>{info}</>;
+  if (empty) return <>{head}<EmptyBox>{recorded ? "No submissions or interviews held were recorded in the portal in these 6 weeks." : "No submissions or interviews held in these 6 weeks."}</EmptyBox>{info}</>;
 
   const max = Math.max(1, ...weeks.map((w) => Math.max(w.shared, w.held)));
   const col = (w: WeekRow, k: keyof typeof SERIES) => {

@@ -169,13 +169,13 @@ describe("candidate history (read-only, from submission events)", () => {
 });
 
 describe("states", () => {
-  it("loading, error with retry, and Hiring progress not connected", () => {
+  it("loading, error with retry, and Hiring progress not connected without milestone 4", () => {
     expect(page("candidates", { status: "loading", key: "u1:c1" })).toContain("Loading workspace data…");
     const e = page("roles", { status: "error", key: "u1:c1" });
     expect(e).toContain('role="alert"');
     expect(e).toContain(">Try again</button>");
     expect(e).not.toContain("Warehouse Lead");
-    expect(page("progress")).toContain("Hiring progress is not connected yet.");
+    expect(page("progress")).toContain("Hiring progress is not connected yet: it needs interview and offer records (milestone 4) on this database.");
   });
   it("the shell shows data only for the account it was loaded for", () => {
     const auth = (userId: string, clientId: string): AuthState => ({ status: "ready", user: { id: userId, email: "x@example.com" }, member: { id: "m", clientId, displayName: "Pat Example", jobTitle: "" }, client: { id: clientId, name: `Client ${clientId}` } });

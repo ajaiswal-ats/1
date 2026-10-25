@@ -1,5 +1,6 @@
 import type { ReactNode } from "react";
-import type { Role, Stage } from "../data/fixtures";
+import type { Stage } from "../data/fixtures";
+import type { ReportData, ReportRole } from "../reporting/metrics";
 
 /* Small pieces shared by the four Hiring progress charts, matching 2h's markup. */
 
@@ -57,7 +58,18 @@ export function CountingInfo({ items, head, rows }: { items: ReactNode[]; head: 
 }
 
 /** The "Roles included" line on Pipeline and Time in stage. */
-export function rolesIncludedItem(role: Role | null): ReactNode {
-  const scope = role ? `${role.title}${role.status !== "Open" ? " (on hold now)" : ""}` : "every role, including roles that are on hold now";
+export function rolesIncludedItem(role: ReportRole | null, data?: ReportData): ReactNode {
+  const closed = data?.roles.some((r) => r.status === "Closed") ? " or closed" : "";
+  const scope = role ? `${role.title}${role.status !== "Open" ? ` (${role.status.toLowerCase()} now)` : ""}` : `every role, including roles that are on hold${closed} now`;
   return <><b>Roles included:</b>{` ${scope}. The "Include on-hold roles" control applies only to Candidates by role.`}</>;
+}
+
+/** Shown instead of a number that is not known (never 0). */
+export const NOT_AVAILABLE = "Not available";
+/** Why Sourced and Screened are not available in Supabase mode. */
+export const SEARCH_NOT_CONNECTED = "They are not available here: Revenue Optics' search records are not connected to the portal, and whether clients see them has not been agreed.";
+
+/** Supabase mode: what the reports cover. */
+export function sharedScopeItem(): ReactNode {
+  return <><b>Candidates included:</b> those currently shared with your team, from what the portal has recorded. Candidates that are withdrawn or no longer shared are not included, so earlier totals can go down.</>;
 }

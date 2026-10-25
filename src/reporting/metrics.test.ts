@@ -49,10 +49,10 @@ function expectConsistent(data: Dataset, f: RoleFilter, includeOnHold: boolean) 
   const hidden = hiddenRoles(data, f, includeOnHold).map((r) => r.id);
   const hiddenNow = ["To review", "Interview", "Offer", "Hired"].map((s) => data.subs.filter((c) => hidden.includes(c.role) && c.stage === s).length);
   const sums = [0, 1, 2, 3].map((i) => rows.reduce((a, r) => a + r.by[i], 0));
-  expect(sums, "role chart = Pipeline 'In stage now' minus roles hidden from the role chart").toEqual([2, 3, 4, 5].map((i, k) => M.now[i] - hiddenNow[k]));
+  expect(sums, "role chart = Pipeline 'In stage now' minus roles hidden from the role chart").toEqual([2, 3, 4, 5].map((i, k) => M.now[i]! - hiddenNow[k]));
   const W = weeklyCounts(data, f);
-  expect(W.reduce((a, w) => a + w.shared, 0)).toBeLessThanOrEqual(M.reached[2]);
-  expect(W.reduce((a, w) => a + w.held, 0)).toBeLessThanOrEqual(M.reached[3]);
+  expect(W.reduce((a, w) => a + w.shared, 0)).toBeLessThanOrEqual(M.reached[2]!);
+  expect(W.reduce((a, w) => a + w.held, 0)).toBeLessThanOrEqual(M.reached[3]!);
 }
 
 describe("reference data, all roles (test_2f.py)", () => {
@@ -60,7 +60,7 @@ describe("reference data, all roles (test_2f.py)", () => {
   it("Pipeline reached 57/24/12/6/2/1 and in stage now 12/4/4/4/1/1", () => {
     expect(M.reached).toEqual([57, 24, 12, 6, 2, 1]);
     expect(M.now).toEqual([12, 4, 4, 4, 1, 1]);
-    expect(M.closed).toEqual({ dec: 2, np: 29 });
+    expect(M.closed).toEqual({ dec: 2, decBy: { you: 2, ro: 0 }, np: 29 });
     expect(M.offers).toEqual({ made: 2, acc: 1 });
   });
   it("Time in stage: averages 4.3/1.8/5.1/15.5/9, completed 45/20/8/2/1, ongoing 12/4/4/4/1 (25 in all)", () => {

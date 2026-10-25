@@ -1,7 +1,6 @@
 import type { CSSProperties } from "react";
-import type { Dataset, Role } from "../data/fixtures";
 import { fd } from "../lib/dates";
-import { ROLE_CHART_STAGES, hiddenRoles, type RoleFilter, type RoleRow, type RoleSort } from "../reporting/metrics";
+import { ROLE_CHART_STAGES, hiddenRoles, type ReportData, type ReportRole, type RoleFilter, type RoleRow, type RoleSort } from "../reporting/metrics";
 import { ChartHead, CountingInfo, EmptyBox, Legend, Seg, plural, stageColor, stageText } from "./shared";
 
 const PLOT_H = 200; /* plot height in px */
@@ -10,13 +9,13 @@ function ticks(max: number) {
   for (let v = 0; v <= top; v += step) t.push(v);
   return { top, t };
 }
-const meta = (r: Role) => `Opened ${fd(r.opened)}${r.status !== "Open" ? " · On hold" : ""}`;
+const meta = (r: ReportRole) => `Opened ${fd(r.opened)}${r.status !== "Open" ? ` · ${r.status}` : ""}`;
 const breakdown = (x: RoleRow) => (x.total ? ROLE_CHART_STAGES.map((s, k) => (x.by[k] ? `${x.by[k]} ${s}` : "")).filter(Boolean).join(" · ") : "None shared yet");
 
 /* Candidates by role (2g): one stacked column per role, current stages from the bottom, total above.
    Stages are readable without colour: legend, counts inside segments at least 18 px tall, and a breakdown under each role. */
 export function ByRole({ data, filter, rows, includeOnHold, sort, onIncludeOnHold, onSort }: {
-  data: Dataset; filter: RoleFilter; rows: RoleRow[]; includeOnHold: boolean; sort: RoleSort;
+  data: ReportData; filter: RoleFilter; rows: RoleRow[]; includeOnHold: boolean; sort: RoleSort;
   onIncludeOnHold: (v: boolean) => void; onSort: (v: RoleSort) => void;
 }) {
   const hidden = hiddenRoles(data, filter, includeOnHold), dec = rows.reduce((a, x) => a + x.dec, 0);
@@ -31,18 +30,18 @@ export function ByRole({ data, filter, rows, includeOnHold, sort, onIncludeOnHol
   const info = (
     <CountingInfo
       items={[
-        <>{`One row per open role${includeOnHold ? " and per on-hold role" : ""}, including roles with no candidates yet. Each candidate shared with you is counted once, at their latest saved stage.`}</>,
-        <>{`On-hold roles are left out unless "Include on-hold roles" is ticked. This control affects this chart only.${hidden.length ? ` Not shown now: ${hidden.map((r) => r.title).join(", ")} (on hold).` : ""}`}</>,
-        <>{`Also not shown: ${dec} declined by you. Candidates still in Revenue Optics search are not included.`}</>,
+        <>{`One row per open role${includeOnHold ? " and per on-hold role" : ""}, including roles with no candidates yet. Each candidate ${data.recorded ? "currently shared with your team" : "shared with you"} is counted once, at their latest saved stage.`}</>,
+        <>{`On-hold roles are left out unless "Include on-hold roles" is ticked. This control affects this chart only.${hidden.length ? ` Not shown now: ${hidden.map((r) => `${r.title} (${r.status.toLowerCase()})`).join(", ")}.` : ""}`}</>,
+        <>{`Also not shown: ${dec} declined${data.recorded ? "" : " by you"}. Candidates still in Revenue Optics search are not included.`}</>,
         <>Offer and Hired are saved stages, not a record of an offer. No target number of candidates has been set for any role.</>,
       ]}
       head={["Role", ...ROLE_CHART_STAGES, "Total", "Declined"]}
-      rows={rows.map((x) => [x.role.title + (x.role.status !== "Open" ? " (on hold)" : ""), ...x.by, x.total, x.dec])}
+      rows={rows.map((x) => [x.role.title + (x.role.status !== "Open" ? ` (${x.role.status.toLowerCase()})` : ""), ...x.by, x.total, x.dec])}
     />
   );
   if (!rows.length) {
     const one = filter !== "all" ? data.roles.find((r) => r.id === filter) : null;
-    const msg = one && one.status !== "Open" ? `${one.title} is on hold. Tick "Include on-hold roles" to show it.` : "No open roles right now.";
+    const msg = one && one.status === "On hold" ? `${one.title} is on hold. Tick "Include on-hold roles" to show it.` : one && one.status === "Closed" ? `${one.title} is closed. Closed roles are not shown in this chart.` : "No open roles right now.";
     return <>{head}<EmptyBox>{msg}</EmptyBox>{info}</>;
   }
 

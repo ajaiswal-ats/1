@@ -368,7 +368,7 @@ try {
   await A.reload();
   ck("reload: the session is restored without signing in again", await waitH1(A, "Candidates") && (await A.innerText(".client b")) === "Offline Test Client");
   await A.evaluate(() => (location.hash = "#progress"));
-  ck("Hiring progress: explicitly not connected", await waitH1(A, "Hiring progress") && (await A.innerText(".rempty")).startsWith("Hiring progress is not connected yet."));
+  ck("Hiring progress without milestone 4: explicitly not connected", await waitH1(A, "Hiring progress") && (await A.innerText(".rempty")).startsWith("Hiring progress is not connected yet: it needs interview and offer records (milestone 4)"));
 
   const before = supabaseCalls.length;
   await A.click("text=Sign out");
@@ -454,6 +454,22 @@ try {
     ck("milestone 4: missing information is shown as missing, never as 'No action needed' for a live candidate",
       all.some((t) => t.includes("Next step not recorded")) && all.some((t) => t.includes("No client interview recorded")) && all.filter((t) => t.includes("No action needed")).every((t) => t.includes("Declined")));
     await shot(A, "m4-list");
+  }
+  /* Milestone 5: Hiring progress from the same loaded rows; Sourced and Screened not available; client-team wording. */
+  await A.evaluate(() => (location.hash = "#progress"));
+  await waitH1(A, "Hiring progress");
+  {
+    const shared = WORKSPACES.c1.submissions.filter((x) => x.publication === "published").length;
+    ck("milestone 5: the four charts are shown from database rows", await A.waitForSelector("#hp-funnel svg.chart", { timeout: 5000 }).then(() => true, () => false)
+      && (await A.$$eval("#hp-funnel, #hp-roles, #hp-time, #hp-weekly", (e) => e.length)) === 4 && (await A.innerText(".period")) === "Fictional data · development");
+    const funnel = await A.$eval("#hp-funnel svg.chart", (e) => e.getAttribute("aria-label"));
+    ck("milestone 5: Sourced and Screened are Not available, never 0; Submitted counts every shared submission", funnel.startsWith(`Sourced not available, Screened not available, Submitted ${shared},`), funnel);
+    await A.evaluate(() => document.querySelectorAll("#page details.fo-info").forEach((d) => (d.open = true)));
+    const t = await A.innerText("#page");
+    ck("milestone 5: client-team wording, UTC weeks and the currently-shared scope are stated", !/declined by you|your decision/.test(t) && t.includes("(UTC)") && t.includes("currently shared with your team")
+      && t.includes("does not prove that no recruiting activity happened"));
+    ck("milestone 5: no candidate names on the page", !["Riley Offline", "Casey Offline", "Jordan Offline"].some((x) => t.includes(x)));
+    await shot(A, "m5-progress");
   }
 
   ck("the demo's saved actions are never written in Supabase mode", await A.evaluate(() => localStorage.getItem("ro-portal-demo-actions") === null));
