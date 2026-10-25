@@ -22,13 +22,16 @@ export type ActionKind = "move" | "decline" | "feedback";
 export interface MoveRequest {
   action?: ActionKind; submissionId: string; toStage: Stage; expectedVersion: number; key: string; seenStage?: Stage;
   note?: string; category?: string | null; about?: string | null; text?: string;
+  /** Interview feedback for this round (milestone 4): it completes the round's feedback task. Without it, feedback is general. */
+  interviewId?: string | null;
 }
-export type Intent = { action: "move"; toStage: MoveTarget } | { action: "decline"; note: string; category: string | null } | { action: "feedback"; about: string | null; text: string };
+export type Intent = { action: "move"; toStage: MoveTarget } | { action: "decline"; note: string; category: string | null }
+  | { action: "feedback"; about: string | null; text: string; interviewId?: string | null };
 /** Development-only test-run record entry (see scripts/dev/move-record-lib.mjs). No session token or password is ever in it. */
 export type MoveRecordEntry =
   | { phase: "sent"; action: ActionKind; key: string; submission_id: string; expected_version: number; seen_stage: Stage | undefined; to_stage: Stage; attempt: number }
   | { phase: "outcome"; key: string; submission_id: string; outcome: string };
-export interface MoveResult { submission_id: string; stage: string; version: number; event_id: number; note_id?: string }
+export interface MoveResult { submission_id: string; stage: string; version: number; event_id: number; note_id?: string; interview_id?: string }
 /** What one call of client_move_stage came back with. `uncertain`: no usable answer, so it may or may not have been saved. */
 export type RpcOutcome = { kind: "ok"; result: MoveResult } | { kind: "error"; code: string } | { kind: "uncertain" };
 export type MoveRpc = (r: MoveRequest) => Promise<RpcOutcome>;
@@ -118,7 +121,8 @@ export function createMoveController(rpc: MoveRpc, refresh: () => void, opts: Mo
     if (out.kind === "ok") {
       const r = out.result;
       const decision = (request.action ?? "move") !== "move";
-      const matches = r && r.submission_id === request.submissionId && r.stage === request.toStage && r.version === request.expectedVersion + 1 && (!decision || typeof r.note_id === "string");
+      const matches = r && r.submission_id === request.submissionId && r.stage === request.toStage && r.version === request.expectedVersion + 1 && (!decision || typeof r.note_id === "string")
+        && (!request.interviewId || r.interview_id === request.interviewId);
       set(matches ? { status: "saved", account: acc, submissionId: request.submissionId, action: request.action ?? "move", toStage: request.toStage }
         : { status: "failed", account: acc, submissionId: request.submissionId, message: MOVE_MESSAGES.unexpected });
       refresh();
@@ -145,7 +149,7 @@ export function createMoveController(rpc: MoveRpc, refresh: () => void, opts: Mo
       const base = { submissionId: sub.id, expectedVersion: sub.version, key: newKey(), seenStage: sub.stage };
       const request: MoveRequest = intent.action === "move" ? { ...base, action: "move", toStage: intent.toStage }
         : intent.action === "decline" ? { ...base, action: "decline", toStage: "Declined", note: intent.note, category: intent.category }
-        : { ...base, action: "feedback", toStage: sub.stage, about: intent.about, text: intent.text };
+        : { ...base, action: "feedback", toStage: sub.stage, about: intent.about, text: intent.text, ...(intent.interviewId ? { interviewId: intent.interviewId } : {}) };
       void send(acc, request, 0);
       return true;
     },
@@ -173,6 +177,7 @@ export interface RpcClient { rpc(fn: string, args: Record<string, unknown>): Rpc
 export function rpcCall(r: MoveRequest): [string, Record<string, unknown>] {
   const common = { p_submission_id: r.submissionId, p_expected_version: r.expectedVersion, p_idempotency_key: r.key };
   if (r.action === "decline") return ["client_decline", { ...common, p_note: r.note, p_category: r.category ?? null }];
+  if (r.action === "feedback" && r.interviewId) return ["client_add_interview_feedback", { ...common, p_interview_id: r.interviewId, p_about: r.about ?? null, p_text: r.text }];
   if (r.action === "feedback") return ["client_add_feedback", { ...common, p_about: r.about ?? null, p_text: r.text }];
   return ["client_move_stage", { ...common, p_to_stage: r.toStage }];
 }

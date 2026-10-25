@@ -5,6 +5,7 @@ begin;
 do $$
 begin
   if to_regclass('public.role_requirement_sets') is null then raise exception 'milestone 3 not found: nothing changed'; end if;
+  if to_regclass('public.client_interviews') is not null then raise exception 'milestone 4 is applied: roll it back first. Nothing changed.'; end if;
   if exists (select 1 from public.requirement_evidence) or exists (select 1 from public.submission_packages)
      or exists (select 1 from public.role_requirements) or exists (select 1 from public.role_requirement_sets)
      or exists (select 1 from public.roles where summary is not null or responsibilities is not null or job_description is not null or hold_note is not null) then

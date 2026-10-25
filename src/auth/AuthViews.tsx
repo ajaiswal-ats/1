@@ -7,6 +7,7 @@ import type { AuthState, ClientInfo, Member, SessionUser } from "./session";
 import { WorkspacePage, NO_MOVES, type MovesProps } from "../workspace/DbViews";
 import { keyOf, type WorkspaceState } from "../workspace/store";
 import { utcToday } from "../workspace/data";
+import { waitingCount } from "../workspace/next";
 
 /* The Supabase portal's screens, drawn only from the session state: sign-in, the states around it, and the signed-in shell.
    The shell keeps the reviewed layout (sidebar, top bar, page) but shows no workspace data yet: that is the next milestone.
@@ -120,6 +121,7 @@ function Workspace({ route, user, member, client, onSignOut, workspace }: { rout
   const key = keyOf({ userId: user.id, clientId: client.id }), raw = workspace.state;
   const ws: WorkspaceState = raw.status !== "idle" && raw.key === key ? raw : { status: "loading", key };
   const note = ws.status === "ready" ? `${ws.ws.roles.length} ${ws.ws.roles.length === 1 ? "role" : "roles"} with Revenue Optics` : "Client workspace";
+  const today = workspace.today ?? utcToday(), waiting = ws.status === "ready" && ws.ws.steps ? waitingCount(ws.ws, ws.ws.subs, today) : 0;
   const here = (k: NavKey) => (current === k ? { "aria-current": "page" as const } : {});
   const themeButton = (t: Theme, label: string) => <button type="button" aria-pressed={theme === t} onClick={() => setTheme(t)}>{label}</button>;
   return (
@@ -128,7 +130,7 @@ function Workspace({ route, user, member, client, onSignOut, workspace }: { rout
         <div className="sbrand"><span className="lg"><img alt="Revenue Optics" src={logo} /></span></div>
         <div className="client"><b>{client.name}</b><span>{note}</span></div>
         <nav className="nav" id="nav">
-          <a href="#candidates" {...here("candidates")}><PeopleIcon />Candidates</a>
+          <a href="#candidates" {...here("candidates")}><PeopleIcon />Candidates{waiting > 0 && <span className="ct" aria-label={`${waiting} waiting on you`}>{waiting}</span>}</a>
           <a href="#roles" {...here("roles")}><BriefIcon />Roles</a>
           <div className="grp">Reports</div>
           <a href="#progress" {...here("progress")}><ChartIcon />Hiring progress</a>
@@ -149,7 +151,7 @@ function Workspace({ route, user, member, client, onSignOut, workspace }: { rout
           <div className="mockline proto">Development · fictional test data from the database · stage changes are saved to the database only: nobody is notified and Manatal is not updated{workspace.devRecording ? " · test-run recording on" : ""}</div>
         </header>
         <main className="page" id="page" tabIndex={-1}>
-          <WorkspacePage key={key} route={route} state={ws} onRetry={workspace.retry} today={workspace.today ?? utcToday()}
+          <WorkspacePage key={key} route={route} state={ws} onRetry={workspace.retry} today={today}
             moves={workspace.moves ? { ...workspace.moves, account: key } : NO_MOVES} memberId={member.id} />
         </main>
       </div>

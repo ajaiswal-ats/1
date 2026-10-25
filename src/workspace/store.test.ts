@@ -4,7 +4,7 @@ import type { Workspace } from "./data";
 import { createWorkspaceController } from "./store";
 
 const flush = () => new Promise((r) => setTimeout(r, 0));
-const ws = (clientId: string): Workspace => ({ clientId, roles: [], people: new Map(), subs: [], moves: [], events: [], notes: [], content: null });
+const ws = (clientId: string): Workspace => ({ clientId, roles: [], people: new Map(), subs: [], moves: [], events: [], notes: [], content: null, steps: null });
 function deferred() {
   const pending: { clientId: string; resolve: (w: Workspace) => void; reject: (e: Error) => void }[] = [];
   const load = (clientId: string) => new Promise<Workspace>((resolve, reject) => pending.push({ clientId, resolve, reject }));

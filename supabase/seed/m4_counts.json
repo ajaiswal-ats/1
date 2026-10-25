@@ -1,0 +1,17 @@
+{
+  "interviews": 9,
+  "held": 5,
+  "feedbackRecorded": 3,
+  "cancelled": 1,
+  "outcomes": 2,
+  "harborVisible": {
+    "interviews": 6,
+    "outcomes": 2,
+    "waitingOnYou": 5
+  },
+  "northwindVisible": {
+    "interviews": 2,
+    "outcomes": 0,
+    "waitingOnYou": 0
+  }
+}

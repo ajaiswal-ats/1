@@ -51,11 +51,24 @@ export interface DbPackage {
 }
 /** Milestone 3 content. Sets are keyed by role, packages by submission; a missing entry means nothing is shared. */
 export interface DbContent { roleInfo: Map<string, DbRoleInfo>; sets: Map<string, DbRequirementSet>; packages: Map<string, DbPackage> }
+/** A client interview round (milestone 4), recorded by Revenue Optics. Separate from the recruitment stage. Dates that
+    were not recorded are null. `asOfVersion`: the submission's version when its latest status was recorded. */
+export interface DbInterview {
+  id: string; submissionId: string; round: number; status: "requested" | "scheduled" | "held" | "cancelled";
+  requestedOn: string | null; suggestedTimes: string | null; scheduledOn: string | null; timeText: string | null; interviewers: string | null;
+  heldOn: string | null; feedbackRecordedOn: string | null; asOfVersion: number;
+}
+/** An offer outcome recorded by Revenue Optics (separate from the Offer and Hired stages). */
+export interface DbOutcome { submissionId: string; status: "offer_made" | "offer_accepted"; recordedOn: string; asOfVersion: number }
+/** Milestone 4 facts: interview rounds per submission (round order), outcomes per submission, and the feedback note
+    linked to a round (by round id). */
+export interface DbSteps { interviews: Map<string, DbInterview[]>; outcomes: Map<string, DbOutcome[]>; feedbackLinks: Map<string, string> }
 /** `notes` is null when the database has no client notes yet (milestone 2 not applied): decisions are then unavailable.
-    `content` is null when milestone 3 is not applied: descriptions, requirements and summaries are then not connected. */
+    `content` is null when milestone 3 is not applied: descriptions, requirements and summaries are then not connected.
+    `steps` is null when milestone 4 is not applied: next steps, Waiting on you and interviews are then not connected. */
 export interface Workspace {
   clientId: string; roles: DbRole[]; people: Map<string, DbPerson>; subs: DbSubmission[]; moves: DbMove[]; events: DbEvent[]; notes: DbNote[] | null;
-  content: DbContent | null;
+  content: DbContent | null; steps: DbSteps | null;
 }
 
 interface Result { data: Record<string, unknown>[] | null; error: unknown }
@@ -128,7 +141,7 @@ async function rows(db: WorkspaceDb, table: string, cols: string, clientId: stri
 }
 
 export async function loadWorkspace(db: WorkspaceDb, clientId: string): Promise<Workspace> {
-  const [roleRows, personRows, subRows, eventRows, noteRows, setRows, packageRows] = await Promise.all([
+  const [roleRows, personRows, subRows, eventRows, noteRows, setRows, packageRows, interviewRows, outcomeRows, linkRows] = await Promise.all([
     rows(db, "roles", "id, client_id, title, location, status, opened_on, recruiter_name", clientId),
     rows(db, "people", "id, client_id, name, headline, location", clientId),
     rows(db, "submissions", "id, client_id, role_id, person_id, stage, shared_on, publication, version", clientId),
@@ -136,7 +149,13 @@ export async function loadWorkspace(db: WorkspaceDb, clientId: string): Promise<
     rows(db, "client_notes", "id, client_id, submission_id, event_id, kind, about, text, category, author_member_id, created_at", clientId, "id", true),
     rows(db, "role_requirement_sets", "id, client_id, role_id, version, label, status, agreed_on", clientId, "id", true),
     rows(db, "submission_packages", "id, client_id, submission_id, role_id, requirement_set_id, version, state, why_shared, strengths, points_to_clarify, key_facts", clientId, "id", true),
+    rows(db, "client_interviews", "id, client_id, submission_id, round, status, requested_on, suggested_times, scheduled_on, time_text, interviewers, held_on, feedback_recorded_on, as_of_version", clientId, "id", true),
+    rows(db, "offer_outcomes", "id, client_id, submission_id, status, recorded_on, as_of_version", clientId, "id", true),
+    rows(db, "interview_feedback", "interview_id, client_id, submission_id, note_id", clientId, "interview_id", true),
   ]);
+  const m4 = [interviewRows, outcomeRows, linkRows].filter((x) => x !== null).length;
+  if (m4 !== 0 && m4 !== 3) throw new Error("the database has only part of milestone 4; stopped rather than show part of it");
+  if (m4 === 3 && (setRows === null || noteRows === null)) throw new Error("the database has milestone 4 without milestone 2 or 3; stopped rather than show part of it");
   /* Milestone 3 is read only when both of its first tables exist; one without the other is a partly applied migration. */
   if ((setRows === null) !== (packageRows === null)) throw new Error("the database has only part of milestone 3; stopped rather than show part of it");
   const [infoRows, reqRows, evidenceRows] = setRows === null ? [null, null, null] : await Promise.all([
@@ -187,6 +206,7 @@ export async function loadWorkspace(db: WorkspaceDb, clientId: string): Promise<
     return note;
   });
   const content = setRows === null ? null : readContent(roles, subs, setRows, packageRows!, infoRows!, reqRows!, evidenceRows!);
+  const steps = interviewRows === null ? null : readSteps(subs, events, notes!, interviewRows, outcomeRows!, linkRows!);
   return {
     clientId,
     roles: roles.sort((a, b) => a.title.localeCompare(b.title)),
@@ -196,7 +216,57 @@ export async function loadWorkspace(db: WorkspaceDb, clientId: string): Promise<
     events,
     notes,
     content,
+    steps,
   };
+}
+
+const INTERVIEW: readonly DbInterview["status"][] = ["requested", "scheduled", "held", "cancelled"];
+const optDate = (row: Record<string, unknown>, k: string) => (row[k] === null ? null : date(row, k));
+
+/* Milestone 4 rows, checked as strictly as the rest: rounds numbered 1..n per submission, dates consistent with the status,
+   facts no newer than the submission, and each feedback link tied to a feedback note of the same submission. */
+function readSteps(subs: DbSubmission[], events: DbEvent[], notes: DbNote[], interviewRows: Rows, outcomeRows: Rows, linkRows: Rows): DbSteps {
+  const subById = new Map(subs.map((s) => [s.id, s])), interviews = new Map<string, DbInterview[]>(), byId = new Map<string, DbInterview>();
+  for (const r of interviewRows) {
+    const i: DbInterview = { id: text(r, "id"), submissionId: text(r, "submission_id"), round: int(r, "round"), status: oneOf(r, "status", INTERVIEW),
+      requestedOn: optDate(r, "requested_on"), suggestedTimes: optText(r, "suggested_times"), scheduledOn: optDate(r, "scheduled_on"), timeText: optText(r, "time_text"),
+      interviewers: optText(r, "interviewers"), heldOn: optDate(r, "held_on"), feedbackRecordedOn: optDate(r, "feedback_recorded_on"), asOfVersion: int(r, "as_of_version") };
+    const sub = subById.get(i.submissionId);
+    if (!sub) throw new Bad("an interview for a submission that was not returned");
+    if (i.asOfVersion > sub.version) throw new Bad("an interview newer than its submission");
+    if ((i.status === "scheduled" && !i.scheduledOn) || ((i.status === "held") !== (i.heldOn !== null)) || (i.feedbackRecordedOn && (i.status !== "held" || i.feedbackRecordedOn < i.heldOn!)))
+      throw new Bad("an interview whose dates do not match its status");
+    const list = interviews.get(i.submissionId) ?? [];
+    list.push(i);
+    interviews.set(i.submissionId, list);
+    byId.set(i.id, i);
+  }
+  for (const list of interviews.values()) {
+    list.sort((a, b) => a.round - b.round);
+    if (list.some((x, n) => x.round !== n + 1)) throw new Bad("interview rounds that are not numbered 1, 2, ...");
+    if (list.filter((x) => x.status === "requested" || x.status === "scheduled").length > 1) throw new Bad("two open interview rounds");
+  }
+  const outcomes = new Map<string, DbOutcome[]>();
+  for (const r of outcomeRows) {
+    const o: DbOutcome = { submissionId: text(r, "submission_id"), status: oneOf(r, "status", ["offer_made", "offer_accepted"] as const), recordedOn: date(r, "recorded_on"), asOfVersion: int(r, "as_of_version") };
+    const sub = subById.get(o.submissionId);
+    if (!sub) throw new Bad("an outcome for a submission that was not returned");
+    if (o.asOfVersion > sub.version) throw new Bad("an outcome newer than its submission");
+    const list = outcomes.get(o.submissionId) ?? [];
+    if (list.some((x) => x.status === o.status)) throw new Bad("two outcomes of the same kind");
+    list.push(o);
+    outcomes.set(o.submissionId, list);
+  }
+  const noteById = new Map(notes.map((n) => [n.id, n])), eventById = new Map(events.map((e) => [e.id, e])), feedbackLinks = new Map<string, string>();
+  for (const r of linkRows) {
+    const i = byId.get(text(r, "interview_id")), n = noteById.get(text(r, "note_id"));
+    if (!i || !n || n.kind !== "feedback" || n.submissionId !== i.submissionId || text(r, "submission_id") !== i.submissionId) throw new Bad("a feedback link that does not match its interview and note");
+    if (i.status !== "held" || i.feedbackRecordedOn) throw new Bad("a feedback link on a round that cannot take one");
+    if (!(eventById.get(n.eventId)!.version > i.asOfVersion)) throw new Bad("feedback linked to a round before it was held");
+    if ([...feedbackLinks.values()].includes(n.id)) throw new Bad("one note linked to two rounds");
+    feedbackLinks.set(i.id, n.id);
+  }
+  return { interviews, outcomes, feedbackLinks };
 }
 
 const EVIDENCE: readonly DbEvidenceStatus[] = ["supported", "partly_supported", "not_evidenced", "confirmed_not_met"];

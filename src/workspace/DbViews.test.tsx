@@ -34,6 +34,7 @@ const WS: Workspace = {
   ],
   notes: [],
   content: null,
+  steps: null,
 };
 const ready: WorkspaceState = { status: "ready", key: "u1:c1", ws: WS };
 const page = (route: string, state: WorkspaceState = ready) => renderToStaticMarkup(<WorkspacePage route={route} state={state} onRetry={() => {}} today="2026-10-12" />);

@@ -14,8 +14,8 @@ export const PASSWORDS = { harbor: "offline-pw-harbor", northwind: "offline-pw-n
 const EMAILS = { harbor: "portal-test-harbor@example.com", northwind: "portal-test-northwind@example.com", harborInactive: "portal-test-harbor-inactive@example.com", noMembership: "portal-test-no-membership@example.com" };
 
 /** `maxRows`: the server's row cap per request, like Supabase's "Max rows" (1,000 by default). `m3`: apply milestone 3
-    (needs `m2`); `m3Seed`: also load its fictional content. */
-export async function createProject({ maxRows = 1000, m2 = true, m3 = m2, m3Seed = m3 } = {}) {
+    (needs `m2`); `m3Seed`: also load its fictional content. `m4` / `m4Seed`: the same for milestone 4 (needs `m3`). */
+export async function createProject({ maxRows = 1000, m2 = true, m3 = m2, m3Seed = m3, m4 = m3, m4Seed = m4 } = {}) {
   const db = new PGlite();
   await db.exec(`
     create role anon nologin; create role authenticated nologin; create role service_role nologin;
@@ -36,6 +36,8 @@ export async function createProject({ maxRows = 1000, m2 = true, m3 = m2, m3Seed
   await db.exec(read("supabase/seed/m1_memberships.sql"));
   if (m3) await db.exec(read("supabase/migrations/20261026120000_m3_requirements_packages.sql"));
   if (m3 && m3Seed) await db.exec(read("supabase/seed/m3_fictional.sql"));
+  if (m4) await db.exec(read("supabase/migrations/20261027120000_m4_interviews_outcomes.sql"));
+  if (m4 && m4Seed) await db.exec(read("supabase/seed/m4_fictional.sql"));
   const ids = Object.fromEntries((await db.query("select email, id from auth.users")).rows.map((r) => [r.email, r.id]));
   return { db, ids, fetch: makeFetch(db, ids, maxRows) };
 }
@@ -99,6 +101,7 @@ function makeFetch(db, ids, maxRows) {
         client_move_stage: ["p_submission_id", "p_to_stage", "p_expected_version", "p_idempotency_key"],
         client_decline: ["p_submission_id", "p_note", "p_category", "p_expected_version", "p_idempotency_key"],
         client_add_feedback: ["p_submission_id", "p_about", "p_text", "p_expected_version", "p_idempotency_key"],
+        client_add_interview_feedback: ["p_submission_id", "p_interview_id", "p_about", "p_text", "p_expected_version", "p_idempotency_key"],
       };
       const fn = name.startsWith("rpc/") ? name.slice(4) : null;
       if (method === "POST" && fn && RPCS[fn]) {
@@ -126,6 +129,8 @@ export async function snapshot(db) {
   if ((await db.query("select to_regclass('public.client_notes') is not null as m2")).rows[0].m2) tables.push("public.client_notes");
   if ((await db.query("select to_regclass('public.role_requirement_sets') is not null as m3")).rows[0].m3)
     tables.push("public.role_requirement_sets", "public.role_requirements", "public.submission_packages", "public.requirement_evidence");
+  if ((await db.query("select to_regclass('public.client_interviews') is not null as m4")).rows[0].m4)
+    tables.push("public.client_interviews", "public.offer_outcomes", "public.interview_feedback");
   const out = {};
   for (const t of tables) out[t] = (await db.query(`select coalesce(json_agg(t order by t::text), '[]')::text as j from ${t} t`)).rows[0].j;
   return out;

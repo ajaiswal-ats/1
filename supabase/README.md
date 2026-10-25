@@ -121,3 +121,20 @@ Files: `migrations/20261026120000_m3_requirements_packages.sql`, `rollback/20261
 **Rollback:** `rollback/20261026120000_m3_down.sql` refuses while any milestone 3 content exists; after the cleanup it restores milestone 2 exactly (tested). Milestone 2's rollback now refuses while milestone 3 is applied.
 
 **Frontend:** Supabase mode reads milestone 3 when present. Without it, the role page and Summary tab keep their "not connected" text. A partly applied milestone 3, a refused or failed read, or inconsistent rows (for example a missing evidence row) stop the load with an error. Sources are shown as plain text.
+
+## Milestone 4: client interviews, offer outcomes and round-linked feedback (applied and seeded on the hosted development project, verified 25 Oct 2026 IST; access tests 48/48; post-seed check all OK)
+Files: `migrations/20261027120000_m4_interviews_outcomes.sql`, `rollback/20261027120000_m4_down.sql`, `checks/m4_post_migration.sql`, `seed/m4_fictional.sql`, `checks/m4_post_seed.sql`, `tests/m4_access_editor.sql`, `seed/m4_remove_fictional.sql`. The seed files are generated (`npm run db:seed:generate:m4`, from `src/data/fixtures.ts` plus labelled fictional rows; counts in `seed/m4_counts.json`).
+
+**Manual order (after approval):** `checks/m3_post_seed.sql` (all OK), then the migration, then `checks/m4_post_migration.sql` (all OK), then `seed/m4_fictional.sql`, then `checks/m4_post_seed.sql` (all OK), then `tests/m4_access_editor.sql` (rolled back; `48 passed, 0 failed`). The milestone 1-3 access tests still pass with milestone 4 applied and seeded.
+
+**What it adds:** `client_interviews` (rounds 1, 2, ... per submission: requested, scheduled, held or cancelled; dates only when recorded), `offer_outcomes` (offer made or accepted, recorded by Revenue Optics; separate from the Offer and Hired stages), `interview_feedback` (portal feedback linked to one round), and `client_add_interview_feedback`. Clients read their own client's rows on published submissions; Revenue Optics records the facts (the owner, through the seed, in this milestone).
+
+**Rules:**
+- **The current round** is the highest round, whatever its status: a cancelled newer round is current, so an older round's missing feedback is not reactivated. One requested or scheduled round at a time, and a new round (even one added directly as held) only after the current round is held or cancelled; held and cancelled rounds are final.
+- **Feedback completes a round only when linked to it:** recorded on the round by Revenue Optics, or given in the portal through `client_add_interview_feedback` for that round (current, held, not yet completed). General feedback (`client_add_feedback`) stays a note. Nothing is matched by date. The function uses milestone 2's provisional feedback rule unchanged (D3) and the same idempotency key as milestone 2 feedback, so recorded-run cleanup works unchanged.
+- **Ordering without invented time:** every fact carries `as_of_version`, set by the database to the submission's version when the fact is recorded (the submission row is share-locked, so a concurrent client change is clearly before or after it). A client change with a higher version came after the fact. Recording a fact does not change the submission's version. The seed records every fact as of the current version, because the fixtures describe the state after all their history.
+- **Next steps and "Waiting on you" are derived in the portal** (`src/workspace/next.ts`), never stored, with the same permission rules as the action controls.
+
+**Fictional cleanup:** `seed/m4_remove_fictional.sql` removes all milestone 4 rows of the two fictional clients (round-linked feedback stays as an ordinary note). Milestone 4 rows are not frozen and go with their submissions.
+
+**Rollback:** `rollback/20261027120000_m4_down.sql` refuses while rows exist; after the cleanup it restores milestone 3 exactly (tested). Milestone 3's rollback now refuses while milestone 4 is applied.

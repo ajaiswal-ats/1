@@ -1,0 +1,84 @@
+/* Writes supabase/seed/m4_fictional.sql and m4_remove_fictional.sql: milestone 4 facts (client interviews by round and
+   recorded offer outcomes) for the two fictional clients. Harbor's come from the frontend's fictional dataset
+   (src/data/fixtures.ts: each submission's client interview, the interviews held, and the recorded outcome); Northwind's
+   are fictional test rows. Dates are only those the fixtures give: a missing date stays null, never invented.
+   Ordering: the fixtures describe the state after all their history, so every fact is recorded as of the submission's
+   current version (the database sets as_of_version itself). Usage: node scripts/db/gen-seed-m4.mjs */
+import fs from "node:fs";
+import path from "node:path";
+import { FIXTURE } from "../../src/data/fixtures.ts";
+import { ROOT } from "./env.mjs";
+
+const q = (s) => (s === null || s === undefined ? "null" : `'${String(s).replace(/'/g, "''")}'`);
+const sub = (c, ref) => `md5(${q(`portal-m1:submission:${c}:${ref}`)})::uuid`;
+const client = (c) => `md5(${q(`portal-m1:client:${c}`)})::uuid`;
+const iid = (c, ref, round) => `md5(${q(`portal-m4:interview:${c}:${ref}:${round}`)})::uuid`;
+
+/* Rounds as a list of steps: insert (requested, scheduled or held), then updates. */
+const rounds = [];
+for (const s of FIXTURE.subs) {
+  const k = s.client, held = FIXTURE.held.find((h) => h.sid === s.id);
+  if (k.status === "none") { if (held) throw new Error(`${s.id}: held without an interview`); continue; }
+  const r = { c: "harbor", ref: s.id, round: 1, interviewers: k.with ?? null, requestedOn: null, suggested: null, scheduledOn: null, time: null, heldOn: null, feedbackOn: null };
+  if (k.status === "requested") Object.assign(r, { status: "requested", requestedOn: k.date, suggested: k.slots ?? null });
+  else if (k.status === "scheduled") Object.assign(r, { status: "scheduled", scheduledOn: k.date, time: k.time ?? null });
+  else if (k.status === "held" || k.status === "feedback") {
+    if (!held) throw new Error(`${s.id}: interview ${k.status} but no held date in the fixtures`);
+    Object.assign(r, { status: "held", heldOn: held.d, feedbackOn: k.status === "feedback" ? k.date : null });
+  } else throw new Error(`${s.id}: unknown interview status ${k.status}`);
+  rounds.push(r);
+}
+/* Northwind (fictional): round 1 held without feedback, then round 2 requested and cancelled. The cancelled round is the
+   current one, so round 1's missing feedback is not a task. n2-ops (unpublished): one requested round, never visible. */
+rounds.push({ c: "northwind", ref: "n1-ops", round: 1, status: "held", interviewers: "Fictional interviewer", requestedOn: null, suggested: null, scheduledOn: null, time: null, heldOn: "2026-10-09", feedbackOn: null });
+rounds.push({ c: "northwind", ref: "n1-ops", round: 2, status: "requested", cancel: true, interviewers: null, requestedOn: "2026-10-10", suggested: "Fictional times", scheduledOn: null, time: null, heldOn: null, feedbackOn: null });
+rounds.push({ c: "northwind", ref: "n2-ops", round: 1, status: "requested", interviewers: null, requestedOn: "2026-10-10", suggested: null, scheduledOn: null, time: null, heldOn: null, feedbackOn: null });
+
+const outcomes = FIXTURE.subs.filter((s) => s.outcome).map((s) => ({ c: "harbor", ref: s.id, status: s.outcome.status === "Offer made" ? "offer_made" : "offer_accepted", on: s.outcome.d }));
+
+const insertRounds = rounds.map((r) => `insert into public.client_interviews (id, client_id, submission_id, round, status, requested_on, suggested_times, scheduled_on, time_text, interviewers, held_on, as_of_version)
+  values (${iid(r.c, r.ref, r.round)}, ${client(r.c)}, ${sub(r.c, r.ref)}, ${r.round}, ${q(r.status)}, ${q(r.requestedOn)}, ${q(r.suggested)}, ${q(r.scheduledOn)}, ${q(r.time)}, ${q(r.interviewers)}, ${q(r.heldOn)}, 1);`).join("\n");
+const updates = [
+  ...rounds.filter((r) => r.feedbackOn).map((r) => `update public.client_interviews set feedback_recorded_on = ${q(r.feedbackOn)} where id = ${iid(r.c, r.ref, r.round)};`),
+  ...rounds.filter((r) => r.cancel).map((r) => `update public.client_interviews set status = 'cancelled' where id = ${iid(r.c, r.ref, r.round)};`),
+].join("\n");
+const insertOutcomes = outcomes.length ? `insert into public.offer_outcomes (client_id, submission_id, status, recorded_on, as_of_version) values
+  ${outcomes.map((o) => `(${client(o.c)}, ${sub(o.c, o.ref)}, ${q(o.status)}, ${q(o.on)}, 1)`).join(",\n  ")};` : "";
+const fictional = `(${client("harbor")}, ${client("northwind")})`;
+const counts = { interviews: rounds.length, held: rounds.filter((r) => r.status === "held").length, feedbackRecorded: rounds.filter((r) => r.feedbackOn).length,
+  cancelled: rounds.filter((r) => r.cancel).length, outcomes: outcomes.length,
+  harborVisible: { interviews: rounds.filter((r) => r.c === "harbor").length, outcomes: outcomes.length, waitingOnYou: 5 }, northwindVisible: { interviews: 2, outcomes: 0, waitingOnYou: 0 } };
+const header = (what) => `-- GENERATED by scripts/db/gen-seed-m4.mjs from src/data/fixtures.ts and fictional test rows. Do not edit by hand. Fictional data only.\n-- ${what}\n`;
+
+const seed = `begin;
+do $$
+begin
+  if to_regclass('public.client_interviews') is null then raise exception 'milestone 4 migration not found: nothing inserted'; end if;
+  if (select count(*) from public.submissions where client_id in ${fictional}) <> 15 then raise exception 'the milestone 1 fictional seed is not as expected: nothing inserted'; end if;
+  if exists (select 1 from public.client_interviews) or exists (select 1 from public.offer_outcomes) or exists (select 1 from public.interview_feedback) then
+    raise exception 'milestone 4 rows already exist: nothing inserted (remove them first with m4_remove_fictional.sql)';
+  end if;
+end $$;
+-- as_of_version is set by the database (the submission's current version); the 1 below is replaced.
+${insertRounds}
+${updates}
+${insertOutcomes}
+commit;
+`;
+const remove = `begin;
+do $$
+begin
+  if to_regclass('public.client_interviews') is null then raise exception 'milestone 4 not found: nothing changed'; end if;
+end $$;
+delete from public.interview_feedback where client_id in ${fictional};
+delete from public.offer_outcomes where client_id in ${fictional};
+delete from public.client_interviews where client_id in ${fictional};
+commit;
+`;
+fs.writeFileSync(path.join(ROOT, "supabase/seed/m4_fictional.sql"), header(`Milestone 4 seed: ${counts.interviews} interview rounds (${counts.held} held, ${counts.feedbackRecorded} with feedback recorded, ${counts.cancelled} cancelled) and ${counts.outcomes} offer outcomes. One transaction.
+-- It stops without changing anything unless milestone 4 is applied, the milestone 1 fictional seed is present, and no
+-- milestone 4 rows exist yet. Expected: Harbor ${JSON.stringify(counts.harborVisible)}; Northwind ${JSON.stringify(counts.northwindVisible)}.`) + seed);
+fs.writeFileSync(path.join(ROOT, "supabase/seed/m4_remove_fictional.sql"), header(`Removes ALL milestone 4 rows of the two fictional clients (feedback links, outcomes, interviews). One transaction.
+-- Milestones 1-3 are not touched (feedback notes stay as general notes). Run it before rolling milestone 4 back.`) + remove);
+fs.writeFileSync(path.join(ROOT, "supabase/seed/m4_counts.json"), JSON.stringify(counts, null, 2) + "\n");
+console.log(`wrote supabase/seed/m4_fictional.sql, m4_remove_fictional.sql, m4_counts.json: ${JSON.stringify(counts)}`);

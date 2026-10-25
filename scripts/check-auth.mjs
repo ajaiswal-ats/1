@@ -60,7 +60,7 @@ const WORKSPACES = {
 const FIRST_NAMES_C1 = ["Riley Offline", "Casey Offline", "Field Technician", "Dispatch Planner"];
 /* Milestone 3 (role descriptions, agreed requirements, published packages), served only once `control.m3` is on. Before
    that the made-up project answers like one without milestone 3 (PostgREST: 404, PGRST205). */
-const M3_TABLES = ["role_requirement_sets", "role_requirements", "submission_packages", "requirement_evidence"];
+const M3_TABLES = ["role_requirement_sets", "role_requirements", "submission_packages", "requirement_evidence", "client_interviews", "offer_outcomes", "interview_feedback"];
 const M3 = {
   c1: {
     roleInfo: { r11: { summary: "Install and service fictional equipment for the offline check.", responsibilities: ["Service visits across the region", "Keep maintenance records"], job_description: "Fictional job description for the offline check.", hold_note: null },
@@ -71,9 +71,13 @@ const M3 = {
       why_shared: "Fictional reason for the offline check.", strengths: ["Fictional strength"], points_to_clarify: [], key_facts: [{ label: "Notice period", value: "2 weeks" }] })],
     requirement_evidence: [row("c1", { id: "e11", package_id: "k11", requirement_set_id: "s11", requirement_id: "q11", status: "supported", evidence: "Five years of fictional field service.", source_label: "Interview 03:10" }),
                            row("c1", { id: "e12", package_id: "k11", requirement_set_id: "s11", requirement_id: "q12", status: "not_evidenced", evidence: "Not mentioned.", source_label: null })],
+    /* Milestone 4: Riley's Field Technician interview is held without feedback (a task); nothing else is recorded. */
+    client_interviews: [row("c1", { id: "i11", submission_id: "5a1a0000-0000-4000-8000-000000000011", round: 1, status: "held", requested_on: null, suggested_times: null, scheduled_on: null,
+      time_text: null, interviewers: "Pat Example", held_on: "2026-10-06", feedback_recorded_on: null, as_of_version: 1 })],
+    offer_outcomes: [], interview_feedback: [],
   },
-  c2: { roleInfo: {}, role_requirement_sets: [], role_requirements: [], submission_packages: [], requirement_evidence: [] },
-  c4: { roleInfo: {}, role_requirement_sets: [], role_requirements: [], submission_packages: [], requirement_evidence: [] },
+  c2: { roleInfo: {}, role_requirement_sets: [], role_requirements: [], submission_packages: [], requirement_evidence: [], client_interviews: [], offer_outcomes: [], interview_feedback: [] },
+  c4: { roleInfo: {}, role_requirement_sets: [], role_requirements: [], submission_packages: [], requirement_evidence: [], client_interviews: [], offer_outcomes: [], interview_feedback: [] },
 };
 const NO_ROLE_INFO = { summary: null, responsibilities: null, job_description: null, hold_note: null };
 const control = { slowClient: null, failWorkspaceOnce: new Set(["c4"]), loseRpcAnswers: 0, holdRpc: null, m3: false };
@@ -185,7 +189,9 @@ async function handle(route) {
   }
   if (M3_TABLES.includes(table)) {
     if (!control.m3) return json(route, 404, { code: "PGRST205", message: `Could not find the table 'public.${table}' in the schema cache` });
-    return json(route, 200, cid ? pageOf(M3[cid][table], u.searchParams) : []);
+    /* Facts are recorded as of the submission's current version, as the database does when Revenue Optics records them. */
+    const asOf = (r) => (r.as_of_version === undefined ? r : { ...r, as_of_version: WORKSPACES[cid].submissions.find((x) => x.id === r.submission_id)?.version ?? 1 });
+    return json(route, 200, cid ? pageOf(M3[cid][table].map(asOf), u.searchParams) : []);
   }
   if (table in WORKSPACES.c1) {
     if (!cid) return json(route, 200, []);
@@ -432,6 +438,23 @@ try {
   await A.evaluate(() => (location.hash = "#role-r12"));
   ck("milestone 3: a role without an agreed set shows its hold note and no requirements box", await waitH1(A, "Dispatch Planner")
     && await A.evaluate(() => document.body.innerText.includes("On hold for the offline check.") && !document.querySelector(".rd") && !document.body.innerText.includes("not connected yet.")));
+  /* Milestone 4: one shared count for the sidebar, the Candidates chip and filter, and the list's waiting rows. */
+  await A.evaluate(() => (location.hash = "#candidates"));
+  await waitH1(A, "Candidates");
+  {
+    const badge = await A.$eval("#nav a[href='#candidates'] .ct", (e) => e.textContent).catch(() => null), chip = await A.$eval(".fchip.wait .ct", (e) => e.textContent);
+    ck("milestone 4: the sidebar badge and the Waiting on you chip agree (1: Riley's interview feedback)", badge === "1" && chip === "1", `${badge} / ${chip}`);
+    ck("milestone 4: the Waiting on you chip is enabled", await A.$eval(".fchip.wait", (b) => !b.disabled));
+    await A.click(".fchip.wait");
+    await A.click("text=List");
+    ck("milestone 4: the filter shows exactly the waiting submission", await A.$$eval(".ltab tbody tr", (rs) => rs.length === 1 && rs[0].className === "you" && rs[0].innerText.includes("Riley Offline")
+      && rs[0].innerText.includes("Your feedback") && rs[0].innerText.includes("Interview held · feedback due")));
+    await A.click(".fchip:not(.wait)");
+    const all = await A.$$eval(".ltab tbody tr", (rs) => rs.map((r) => r.innerText));
+    ck("milestone 4: missing information is shown as missing, never as 'No action needed' for a live candidate",
+      all.some((t) => t.includes("Next step not recorded")) && all.some((t) => t.includes("No client interview recorded")) && all.filter((t) => t.includes("No action needed")).every((t) => t.includes("Declined")));
+    await shot(A, "m4-list");
+  }
 
   ck("the demo's saved actions are never written in Supabase mode", await A.evaluate(() => localStorage.getItem("ro-portal-demo-actions") === null));
   ck("every Supabase request went to the made-up offline project only", supabaseCalls.length > 0 && external.length === 0, external.join(", "));

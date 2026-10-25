@@ -1,5 +1,5 @@
 import { Fragment, useState, type CSSProperties, type FormEvent, type ReactNode } from "react";
-import { PinIcon } from "../components/icons";
+import { CheckIcon, PinIcon, VideoIcon } from "../components/icons";
 import type { Stage } from "../data/fixtures";
 import { STAGES } from "../domain/candidates";
 import { fd } from "../lib/dates";
@@ -9,6 +9,7 @@ import { StatusChip } from "../roles/StatusChip";
 import { alsoFor, countByStage, forRole, history, person, roleFor, roleRow, uniquePeople, type DbEvidenceStatus, type DbRole, type DbSubmission, type HistoryEntry, type Workspace } from "./data";
 import { DECLINE_CATEGORIES } from "../domain/actions";
 import { MOVE_MESSAGES, canDecline, canGiveFeedback, moveTargets, type Intent, type MoveState, type MoveTarget } from "./moves";
+import { deriveNext, feedbackTask, interviewLabel, offerStatus, ordered, requirementLine, waitingCount, waitingOnYou } from "./next";
 import type { WorkspaceState } from "./store";
 
 /* Supabase-mode pages, drawn only from the loaded workspace data with the reviewed markup and classes (2h). They do not use
@@ -17,6 +18,9 @@ import type { WorkspaceState } from "./store";
 
 const COLS: Stage[] = [...STAGES, "Declined"];
 const NA = <span className="muted" title="Not connected yet">—</span>;
+/* No summary is shared, so there is no requirement evidence to count. */
+const NO_EVIDENCE = <span className="muted">—</span>;
+const NEXT_CHIP = { you: "c-warn", sched: "c-info", done: "c-ok", ro: "c-mute" } as const;
 const ACTIONS_OFF = "Stage changes, decline and interview feedback are on each candidate's page.";
 const initials = (name: string) => name.split(/\s+/).filter(Boolean).map((w) => w[0]).join("").slice(0, 2).toUpperCase();
 const year = (d: string) => d.slice(0, 4);
@@ -47,10 +51,10 @@ export function WorkspacePage({ route, state, onRetry, today, moves = NO_MOVES, 
     );
   }
   const ws = state.ws;
-  if (route.startsWith("c-")) return <CandidateDetail ws={ws} id={route.slice(2)} moves={moves} memberId={memberId} />;
+  if (route.startsWith("c-")) return <CandidateDetail ws={ws} id={route.slice(2)} moves={moves} memberId={memberId} today={today} />;
   if (route.startsWith("role-")) return <RoleDetail ws={ws} id={route.slice(5)} today={today} />;
   if (current === "roles") return <RolesList ws={ws} today={today} />;
-  return <CandidatesList ws={ws} />;
+  return <CandidatesList ws={ws} today={today} />;
 }
 
 const titleFor = (route: string) => (route.startsWith("c-") ? "Candidate" : route.startsWith("role-") ? "Role" : { candidates: "Candidates", roles: "Roles", progress: "Hiring progress" }[navFor(route)]);
@@ -93,7 +97,7 @@ function RolesList({ ws, today }: { ws: Workspace; today: string }) {
                       <td><StatusChip status={r.status} /></td>
                       <td className="n shared">{x.shared}</td>
                       {x.byStage.map((n, i) => <td key={i} className={`n stn${n ? "" : " zero"}`}>{n}</td>)}
-                      <td className="n">{NA}</td>
+                      <td className="n">{!ws.steps ? NA : (() => { const n = waitingCount(ws, forRole(ws, r.id), today); return n ? <span className="chip c-warn">{n}</span> : "0"; })()}</td>
                       <td className="n small">{`${x.shared7} shared · ${x.moved7} moved`}</td>
                     </tr>
                   );
@@ -102,7 +106,7 @@ function RolesList({ ws, today }: { ws: Workspace; today: string }) {
             </table>
           </div>
         )}
-        <p className="xs muted dbnote">"Waiting on you" is not connected yet.</p>
+        {!ws.steps && <p className="xs muted dbnote">"Waiting on you" is not connected yet.</p>}
       </section>
     </>
   );
@@ -143,7 +147,7 @@ function RoleDetail({ ws, id, today }: { ws: Workspace; id: string; today: strin
       </div>
       <section className="card pad" style={{ marginTop: 18 }}>
         <div className="sec-h"><h2>Candidates for this role</h2></div>
-        <SubmissionTable ws={ws} list={forRole(ws, r.id)} noRole />
+        <SubmissionTable ws={ws} list={ws.steps ? ordered(ws, forRole(ws, r.id), today) : forRole(ws, r.id)} noRole today={today} />
       </section>
     </>
   );
@@ -151,16 +155,19 @@ function RoleDetail({ ws, id, today }: { ws: Workspace; id: string; today: strin
 
 /* ---- Candidates ---------------------------------------------------------------------------------------------------- */
 
-function CandidatesList({ ws }: { ws: Workspace }) {
+function CandidatesList({ ws, today }: { ws: Workspace; today: string }) {
   /* Page controls are kept for this visit only (not saved in the browser), and reset for each account. */
   const [view, setView] = useState<"pipeline" | "list">("pipeline"), [role, setRole] = useState<string>("all"), [showDeclined, setShowDeclined] = useState(false);
+  const [filter, setFilter] = useState<"all" | "you">("all");
   const choice = role === "all" || ws.roles.some((r) => r.id === role) ? role : "all";
-  const list = forRole(ws, choice), n = uniquePeople(list);
+  /* The lede counts the role's submissions; the filter and the waiting-first order use the shared derivation (next.ts). */
+  const base = forRole(ws, choice), n = uniquePeople(base), waiting = ws.steps ? waitingCount(ws, base, today) : 0;
+  const list = !ws.steps ? base : ordered(ws, filter === "you" ? base.filter((c) => waitingOnYou(ws, c, today)) : base, today);
   const scope = choice === "all" ? `${ws.roles.length} ${plural(ws.roles.length, "role")}` : ws.roles.find((r) => r.id === choice)!.title;
   return (
     <>
       <div className="pagehead">
-        <div><h1>Candidates</h1><p className="lede">{`${list.length} ${plural(list.length, "submission")} · ${n} ${n === 1 ? "person" : "people"} · ${scope}`}</p></div>
+        <div><h1>Candidates</h1><p className="lede">{`${base.length} ${plural(base.length, "submission")} · ${n} ${n === 1 ? "person" : "people"} · ${scope}`}</p></div>
         <Seg label="View" value={view} options={[["pipeline", "Pipeline"], ["list", "List"]]} onChange={setView} />
       </div>
       <div className="toolbar">
@@ -169,10 +176,15 @@ function CandidatesList({ ws }: { ws: Workspace }) {
           <option value="all">All roles</option>
           {ws.roles.map((r) => <option key={r.id} value={r.id}>{r.title + (r.status !== "Open" ? ` (${r.status.toLowerCase()})` : "")}</option>)}
         </select>
-        <button type="button" className="fchip" aria-pressed="true">All candidates</button>
-        <button type="button" className="fchip wait" disabled aria-disabled="true" title="Not connected yet">Waiting on you <span className="ct">—</span></button>
+        {ws.steps ? <>
+          <button type="button" className="fchip" aria-pressed={filter === "all"} onClick={() => setFilter("all")}>All candidates</button>
+          <button type="button" className="fchip wait" aria-pressed={filter === "you"} onClick={() => setFilter("you")}>Waiting on you <span className="ct">{waiting}</span></button>
+        </> : <>
+          <button type="button" className="fchip" aria-pressed="true">All candidates</button>
+          <button type="button" className="fchip wait" disabled aria-disabled="true" title="Not connected yet">Waiting on you <span className="ct">—</span></button>
+        </>}
       </div>
-      <p className="xs muted dbnote">Next steps, requirement evidence and interviews are not connected yet. {ACTIONS_OFF}</p>
+      <p className="xs muted dbnote">{ws.steps ? ACTIONS_OFF : `Next steps, requirement evidence and interviews are not connected yet. ${ACTIONS_OFF}`}</p>
       {view === "pipeline" ? (
         <>
           <div className={`board ${showDeclined ? "with-dec" : ""}`}>
@@ -181,7 +193,7 @@ function CandidatesList({ ws }: { ws: Workspace }) {
               return (
                 <section key={s} className="col" aria-label={s} style={{ "--c": stageColor(s) } as CSSProperties}>
                   <div className="col-h"><h2>{s}</h2><span className="ct">{cs.length}</span></div>
-                  {cs.length ? cs.map((c) => <Card key={c.id} ws={ws} c={c} showRole={choice === "all"} />) : <div className="col-empty">No candidates here</div>}
+                  {cs.length ? cs.map((c) => <Card key={c.id} ws={ws} c={c} showRole={choice === "all"} today={today} />) : <div className="col-empty">{`No candidates here${filter !== "all" ? " for this filter" : ""}`}</div>}
                 </section>
               );
             })}
@@ -192,46 +204,50 @@ function CandidatesList({ ws }: { ws: Workspace }) {
             </button>
           </p>
         </>
-      ) : <SubmissionTable ws={ws} list={list} />}
+      ) : <SubmissionTable ws={ws} list={list} today={today} empty={filter !== "all" ? "No candidates match this filter." : undefined} />}
     </>
   );
 }
 
-function Card({ ws, c, showRole }: { ws: Workspace; c: DbSubmission; showRole: boolean }) {
-  const p = person(ws, c), also = alsoFor(ws, c);
+function Card({ ws, c, showRole, today }: { ws: Workspace; c: DbSubmission; showRole: boolean; today: string }) {
+  const p = person(ws, c), also = alsoFor(ws, c), t = deriveNext(ws, c, today), iv = interviewLabel(ws, c);
   return (
-    <a className="ccard" href={`#c-${c.id}`}>
+    <a className={t ? `ccard ${t.cls}` : "ccard"} href={`#c-${c.id}`}>
       <span className="av" aria-hidden="true">{initials(p.name)}</span>
       <div className="b">
         <div className="nm">{p.name}</div>
         {p.headline && <div className="hd">{p.headline}</div>}
         {showRole && <div className="rl">{roleFor(ws, c).title}</div>}
         {also.length > 0 && <div className="also2">{`Same person · also for ${also.join(", ")}`}</div>}
+        {t && iv && <>
+          <div className="meta"><span><CheckIcon />{requirementLine(ws, c) ?? "—"}</span><span><VideoIcon />{iv[1]}</span></div>
+          <div className={`nextbar ${t.cls}`}><span>{t.short}</span></div>
+        </>}
       </div>
     </a>
   );
 }
 
-function SubmissionTable({ ws, list, noRole = false }: { ws: Workspace; list: DbSubmission[]; noRole?: boolean }) {
+function SubmissionTable({ ws, list, noRole = false, today, empty }: { ws: Workspace; list: DbSubmission[]; noRole?: boolean; today: string; empty?: string }) {
   return (
     <div className={noRole ? "ltab-wrap" : "card ltab-wrap"}>
       <table className="ltab">
         <thead><tr><th>Candidate</th>{!noRole && <th>Role</th>}<th>Stage</th><th>Next step</th><th>Requirements</th><th>Interview</th><th>Shared</th></tr></thead>
         <tbody>
           {list.length ? list.map((c) => {
-            const p = person(ws, c), also = alsoFor(ws, c);
+            const p = person(ws, c), also = alsoFor(ws, c), t = deriveNext(ws, c, today), iv = interviewLabel(ws, c), req = ws.steps ? requirementLine(ws, c) : null;
             return (
-              <tr key={c.id}>
+              <tr key={c.id} className={t?.who === "you" ? "you" : ""}>
                 <td><a className="nm" href={`#c-${c.id}`}>{p.name}</a>{p.headline && <div className="xs muted">{p.headline}</div>}</td>
                 {!noRole && <td>{roleFor(ws, c).title}{also.length > 0 && <div className="alsoline">{`Same person · also for ${also.join(", ")}`}</div>}</td>}
                 <td><span className="chip c-stage"><i className="sw" style={{ background: stageColor(c.stage) }} />{c.stage}</span></td>
-                <td>{NA}</td>
-                <td className="small">{NA}</td>
-                <td>{NA}</td>
+                <td>{t ? <span className={`chip ${NEXT_CHIP[t.cls]}`}>{t.short}</span> : NA}</td>
+                <td className="small">{!t ? NA : req ?? NO_EVIDENCE}</td>
+                <td>{iv ? <span className={`chip ${iv[0]}`}>{iv[1]}</span> : NA}</td>
                 <td className="small num">{fd(c.sharedOn)}</td>
               </tr>
             );
-          }) : <tr><td colSpan={noRole ? 6 : 7} className="muted">No candidates have been shared yet.</td></tr>}
+          }) : <tr><td colSpan={noRole ? 6 : 7} className="muted">{empty ?? "No candidates have been shared yet."}</td></tr>}
         </tbody>
       </table>
     </div>
@@ -247,11 +263,12 @@ const TAB_NOT_CONNECTED: Record<Exclude<Tab, "notes">, string> = {
   resume: "Resumes are not connected yet.",
 };
 
-function CandidateDetail({ ws, id, moves, memberId }: { ws: Workspace; id: string; moves: MovesProps; memberId: string }) {
+function CandidateDetail({ ws, id, moves, memberId, today }: { ws: Workspace; id: string; moves: MovesProps; memberId: string; today: string }) {
   const [tab, setTab] = useState<Tab>("summary");
   const c = ws.subs.find((s) => s.id === id);
   if (!c) return <><nav className="crumb"><a href="#candidates">← Back to candidates</a></nav><p>Candidate not found. <a href="#candidates">Back to Candidates</a></p></>;
   const p = person(ws, c), r = roleFor(ws, c), others = ws.subs.filter((x) => x.personId === c.personId && x.id !== c.id), si = STAGES.indexOf(c.stage);
+  const t = deriveNext(ws, c, today), iv = interviewLabel(ws, c), offer = offerStatus(ws, c);
   return (
     <>
       <nav className="crumb" aria-label="Breadcrumb"><a href="#candidates">← Back to candidates</a><span className="muted">/</span><a href={`#role-${r.id}`}>{r.title}</a></nav>
@@ -275,8 +292,9 @@ function CandidateDetail({ ws, id, moves, memberId }: { ws: Workspace; id: strin
         </div>
         <aside className="card act" aria-label="Next step"><div className="pad">
           <h2>Next step</h2>
-          <dl className="statusdl"><dt>Stage</dt><dd>{c.stage}</dd>{r.recruiterName && <><dt>Recruiter</dt><dd>{`${r.recruiterName}, Revenue Optics`}</dd></>}</dl>
-          <ActionPanel key={c.id} sub={c} role={r} moves={moves} decisions={ws.notes !== null} />
+          {t && <div className={`nextbox ${t.cls}`}><b>{t.long}</b>{t.sub && <span className="small">{t.sub}</span>}</div>}
+          <dl className="statusdl"><dt>Stage</dt><dd>{c.stage}</dd>{iv && <><dt>Interview</dt><dd>{iv[1]}</dd></>}{offer && <><dt>Offer status</dt><dd>{offer}</dd></>}{r.recruiterName && <><dt>Recruiter</dt><dd>{`${r.recruiterName}, Revenue Optics`}</dd></>}</dl>
+          <ActionPanel key={c.id} sub={c} role={r} moves={moves} decisions={ws.notes !== null} feedbackRound={ws.steps ? feedbackTask(ws, c)?.id ?? null : undefined} />
           <p className="mock">{NOT_NOTIFIED}</p>
         </div></aside>
       </div>
@@ -363,12 +381,14 @@ function Notes({ ws, sub, memberId }: { ws: Workspace; sub: DbSubmission; member
 const NOT_NOTIFIED = "Development: stage changes and decisions are saved in the portal database only. Your recruiter is not notified automatically, and Manatal is not updated: neither is connected. Who may act, and when, is provisional.";
 const SAVED_SUB = "Confirmed by the server and saved in the portal database. Lists and counts are refreshed. Nobody is notified and Manatal is not updated.";
 
-type Form = { kind: "move"; to: MoveTarget; version: number; stage: Stage } | { kind: "decline" | "feedback"; version: number; stage: Stage };
+type Form = { kind: "move"; to: MoveTarget; version: number; stage: Stage } | { kind: "decline" | "feedback"; version: number; stage: Stage; round?: string | null };
 const label = (r: { action?: string; toStage: string }) => (r.action === "decline" ? "decline" : r.action === "feedback" ? "interview feedback" : `move to ${r.toStage}`);
 
 /** The Next step panel's actions: stage change, decline and interview feedback; choose, confirm, then the server's answer.
     Which actions are offered follows the PROVISIONAL development rules (moves.ts); the server decides. */
-function ActionPanel({ sub, role, moves, decisions }: { sub: DbSubmission; role: DbRole; moves: MovesProps; decisions: boolean }) {
+/* `feedbackRound`: the interview round a feedback form completes (the same rule as the Waiting on you task, next.ts); null
+   when feedback would be general; undefined without milestone 4. */
+function ActionPanel({ sub, role, moves, decisions, feedbackRound }: { sub: DbSubmission; role: DbRole; moves: MovesProps; decisions: boolean; feedbackRound?: string | null }) {
   const targets = moveTargets(sub, role), [choice, setChoice] = useState<MoveTarget | "">("");
   /* The version and stage the user is looking at when they open a form are the ones sent: a change in between is a conflict. */
   const [form, setForm] = useState<Form | null>(null);
@@ -412,7 +432,8 @@ function ActionPanel({ sub, role, moves, decisions }: { sub: DbSubmission; role:
       </form>
     );
   }
-  if (form) return <DecisionForm form={form} roleTitle={role.title} onCancel={() => setForm(null)} onSubmit={(intent) => { if (moves.act(sub, intent, { version: form.version, stage: form.stage })) setForm(null); }} />;
+  if (form) return <DecisionForm form={form} roleTitle={role.title} onCancel={() => setForm(null)}
+    onSubmit={(intent) => { if (moves.act(sub, intent.action === "feedback" && form.kind === "feedback" && form.round ? { ...intent, interviewId: form.round } : intent, { version: form.version, stage: form.stage })) setForm(null); }} />;
 
   const decline = decisions && canDecline(sub, role), feedback = decisions && canGiveFeedback(sub, role), to = (choice || targets[0]) as MoveTarget;
   const why = !decisions ? "Not available on this database yet" : "Not available for this stage or role (provisional rules)";
@@ -432,7 +453,7 @@ function ActionPanel({ sub, role, moves, decisions }: { sub: DbSubmission; role:
         <button type="button" className={`btn btn-d${decline ? "" : " btn-off"}`} data-form="decline" disabled={!decline} title={decline ? undefined : why}
           onClick={() => setForm({ kind: "decline", version: sub.version, stage: sub.stage })}>Decline</button>
         <button type="button" className={`btn btn-s${feedback ? "" : " btn-off"}`} data-form="feedback" disabled={!feedback} title={feedback ? undefined : why}
-          onClick={() => setForm({ kind: "feedback", version: sub.version, stage: sub.stage })}>Share interview feedback</button>
+          onClick={() => setForm({ kind: "feedback", version: sub.version, stage: sub.stage, round: feedbackRound ?? null })}>Share interview feedback</button>
       </div>
       {!decisions && <p className="small muted">Decline and interview feedback are not available on this database yet.</p>}
     </>

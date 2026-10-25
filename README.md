@@ -23,21 +23,27 @@ The Talent Solutions client portal, rebuilt from the `client-workspace-v1-visual
 - **Pending (not yet verified on the hosted project):** a decision request with no answer (same-key automatic retry, "Check again", saved once). Tested offline only; the hosted check was the stage-move version (Priya Raman).
 - **Pending for milestone 3:** read-only Data API checks against the hosted project (no milestone 3 API script has been run; access was checked in the SQL Editor and through supabase-js offline), and a test with two real concurrent database sessions (the locks are in place and every ordering is tested one after the other offline; actual lock waits are not exercised).
 
-**Internal test deployment** (24 Oct 2026): https://client-portal-v1-taupe.vercel.app, commit `d211f1a`, Supabase mode against the hosted development project.
+**Internal test deployment** (25 Oct 2026): https://client-portal-v1-taupe.vercel.app, commit `95ba363` (milestone 3), Supabase mode against the hosted development project.
 This is an internal test deployment using shared fictional data, not a production-ready client portal. Manatal, notifications and the remaining candidate-detail and reporting features are not connected.
-- Verified by hand (Aakash): signed in as Harbor; the Candidates page showed 12 submissions, 11 people and 4 roles, the fictional-data notice, and no test-recording banner.
-- Checked from outside, read-only (no sign-in, no data requests): the page and its scripts load over HTTPS. The browser code is the local build of `d211f1a` plus Vercel's own build variables (its embedded commit is `d211f1a`), in Supabase mode with the test-run recorder off and no recorder endpoint. It holds only the public (anon) key of the development project: no secret key and no Manatal address.
-- Still pending on the hosted project: the decision request with no answer (see above).
-- The deployed build (`d211f1a`) predates milestone 3's frontend, so it still shows role descriptions, requirements and summaries as not connected even though the hosted database now has them.
+- Verified by hand on the deployment (Aakash, 25 Oct): Taylor Brooks' Summary tab and the Regional Sales Manager role page, from the hosted milestone 3 data.
+- Checked from outside, read-only (no sign-in, no credentials, no data requests): the page and its scripts load over HTTPS, and the build embeds commit `95ba363`. Its sign-in code is byte for byte the local build of `95ba363` apart from one bundle file name, and includes milestone 3. Supabase mode, with the test-run recorder off and no recorder endpoint; only the public (anon) key of the development project, with no secret key and no Manatal address. The public sign-in page shows sign-in only (no sign-up or password reset, no workspace or demo data), sends no Supabase request before sign-in, and logs no console or page errors.
+- Earlier deployment (24 Oct, `d211f1a`): Harbor sign-in checked by hand (12 submissions, 11 people, 4 roles, the fictional-data notice, no test-recording banner).
+- Still pending: dedicated hosted Data API checks for milestone 3, a test with two real concurrent database sessions, and the interrupted decline/feedback retry check (see above).
 
 **Provisional, for development testing only**
 - Client moves to Offer and Hired, and the rule behind them (open roles only; no moves out of Offer, Hired or Declined). Not approved for production (decision D3).
+
+**Milestone 4: applied, seeded and verified on the hosted development project on 25 Oct 2026 IST (fictional data); not deployed yet**
+- Client interviews by round, recorded offer outcomes, and interview feedback linked to its round (`supabase/README.md`); in Supabase mode, next steps, "Waiting on you" (sidebar, Candidates chip and filter, Roles list, waiting-first ordering), interview status and requirement support, all from one derivation (`src/workspace/next.ts`) that uses the action controls' permission rules. Missing information is shown as missing: "Awaiting shared summary", "No client interview recorded", "Next step not recorded". Supabase-mode search is deferred.
+- Hosted SQL Editor access tests 48/48 (rolled back); the post-seed check all OK afterwards (25 Oct 2026 IST).
+- Checked by hand on the hosted development data with the local build (25 Oct 2026 IST): Harbor's Waiting on you count and filter (5); Taylor Brooks' interview feedback task on the on-hold Regional Sales Manager role; Northwind's cancelled newer round, with no task brought back for the older round.
+- **Pending for milestone 4:** the new round-linked feedback function (`client_add_interview_feedback`) has not been tested by hand through the hosted UI (it is covered by the SQL Editor access tests and offline); dedicated hosted Data API checks; a test with two real concurrent database sessions; and the interrupted decline/feedback retry check (see above).
 
 **Provisional, for fictional development only (milestone 3)**
 - Role descriptions are not versioned; who approved and published a package is not recorded (D1, D2); packages on superseded requirements are hidden until re-reviewed. Production approval remains open.
 
 **Not connected yet (Supabase mode)**
-- Candidate details: screening interview and resume (Summary, history and decision notes are connected). The Requirements, Next step and Interview columns in the lists. "Waiting on you" and next steps. Hiring progress. Staff tools to write, approve and publish packages (content is seeded by the owner).
+- Candidate details: screening interview and resume (Summary, history, decision notes, next steps and interview status are connected). Search. Hiring progress. Staff tools to write, approve and publish packages (content is seeded by the owner).
 - Notifications and Manatal: saving a stage notifies nobody and does not update Manatal.
 
 **Manatal feasibility (prepared, not run)**
