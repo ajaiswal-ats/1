@@ -76,21 +76,26 @@ function makeFetch(db, ids, maxRows) {
         user: { id: ids[email], email, aud: "authenticated", role: "authenticated", app_metadata: {}, user_metadata: {}, created_at: "2026-10-01T00:00:00Z" } });
     }
     if (u.pathname === "/auth/v1/logout") return reply(204);
+    if (u.pathname === "/auth/v1/user") {
+      const id = tokens.get((h.Authorization || "").replace(/^Bearer /, ""));
+      return id ? reply(200, { id, email: Object.keys(ids).find((e) => ids[e] === id), aud: "authenticated", role: "authenticated" }) : reply(401, { error_code: "bad_jwt" });
+    }
     if (!u.pathname.startsWith("/rest/v1/")) return reply(404, {});
     const bearer = (h.Authorization || "").replace(/^Bearer /, "");
     if (bearer && !tokens.has(bearer)) return reply(401, { code: "PGRST301", message: "JWT invalid" });
     const sub = bearer ? tokens.get(bearer) : null;
     const name = u.pathname.slice("/rest/v1/".length);
+    if (h["Accept-Profile"] && h["Accept-Profile"] !== "public") return reply(406, { code: "PGRST106", message: "The schema must be one of the following: public" });
     const limit = u.searchParams.get("limit"), order = u.searchParams.get("order");
     if (limit !== null && !/^\d+$/.test(limit)) throw new Error("fake: bad limit");
     if (order !== null && !/^[a-z_]+\.asc$/.test(order)) throw new Error(`fake: unsupported order ${order}`);
     const filters = [...u.searchParams].filter(([k]) => !["select", "limit", "order"].includes(k)).map(([k, v]) => {
-      const m = v.match(/^(eq|gt)\.(.*)$/);
+      const m = v.match(/^(eq|neq|gt)\.(.*)$/);
       if (!/^[a-z_]+$/.test(k) || !m) throw new Error(`fake: unsupported filter ${k}=${v}`);
       return [k, m[1], m[2]];
     });
-    /* eq compares as text (as before); gt compares in the column's own type, as PostgREST does. */
-    const where = filters.length ? ` where ${filters.map(([k, op], i) => (op === "eq" ? `${k}::text = $${i + 1}` : `${k} > $${i + 1}`)).join(" and ")}` : "";
+    /* eq and neq compare as text (as before); gt compares in the column's own type, as PostgREST does. */
+    const where = filters.length ? ` where ${filters.map(([k, op], i) => (op === "eq" ? `${k}::text = $${i + 1}` : op === "neq" ? `${k}::text <> $${i + 1}` : `${k} > $${i + 1}`)).join(" and ")}` : "";
     const params = filters.map(([, , v]) => v);
     const rowCap = Math.min(limit === null ? Infinity : Number(limit), maxRows);
     const tail = `${order ? ` order by ${order.replace(/\.asc$/, "")} asc` : ""}${Number.isFinite(rowCap) ? ` limit ${rowCap}` : ""}`;
@@ -121,6 +126,7 @@ function makeFetch(db, ids, maxRows) {
       return reply(404, {});
     } catch (e) {
       if (!e.code) throw e;
+      if (e.code === "42P01") return reply(404, { code: "PGRST205", message: "Could not find the table in the schema cache" });
       const status = e.code === "42501" ? (sub ? 403 : 401) : /^PT\d{3}$/.test(e.code) ? Number(e.code.slice(2)) : 400;
       return reply(status, { code: e.code, message: e.message, details: e.detail ?? null, hint: null });
     }

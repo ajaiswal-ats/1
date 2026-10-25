@@ -1,6 +1,6 @@
 /* Checks for the read-only API checks, with a fake Supabase instead of the network. */
 import { describe, expect, it } from "vitest";
-import { READS, USERS, checkPublicKey, checkUrl, judge, runChecks, scrubber, seedId } from "./api-read-lib.mjs";
+import { M1_READS, READS, USERS, checkPublicKey, checkUrl, judge, runChecks, scrubber, seedId } from "./api-read-lib.mjs";
 
 const jwt = (payload) => `eyJhbGciOiJIUzI1NiJ9.${Buffer.from(JSON.stringify(payload)).toString("base64url")}.sig`;
 
@@ -39,7 +39,8 @@ describe("requests", () => {
   });
 });
 
-/* A fake Supabase that answers as the hosted project should, given the seed and memberships. */
+/* A fake Supabase that answers milestone 1's reads as the hosted project should, given the seed and memberships. The full
+   milestone 1-6 set runs against the offline stand-in project in tests/offline-db/api-read.test.mjs. */
 const KEY = "sb_publishable_testkey123";
 const PASSWORDS = { harbor: "pw-harbor-1", northwind: "pw-northwind-1", harborInactive: "pw-inactive-1", noMembership: "pw-nomember-1" };
 const COUNTS = { harbor: [1, 1, 4, 11, 12, 23], northwind: [1, 1, 1, 1, 1, 1], harborInactive: [0, 0, 0, 0, 0, 0], noMembership: [0, 0, 0, 0, 0, 0] };
@@ -72,7 +73,7 @@ function fakeSupabase({ breakRls = false } = {}) {
       if (!TABLES.includes(table)) return res(404, { code: "PGRST205" });
       if (!who) return res(401, { code: "42501" });
       /* Answer with what the plan expects (the fake knows the seed), or leak one row when RLS is "broken". */
-      const q = READS.find((r) => r.who === who && `/rest/v1/${r.path}` === u.pathname + decodeURIComponent(u.search).replace(/ /g, "%20"));
+      const q = M1_READS.find((r) => r.who === who && `/rest/v1/${r.path}` === u.pathname + decodeURIComponent(u.search).replace(/ /g, "%20"));
       const want = q?.want ?? { rows: COUNTS[who][TABLES.indexOf(table)] };
       let rows = want.body ?? Array.from({ length: want.rows ?? 0 }, () => ({}));
       if (breakRls && who === "noMembership" && table === "submissions") rows = [{ ref: "leak" }];
@@ -86,7 +87,7 @@ function fakeSupabase({ breakRls = false } = {}) {
 describe("runChecks against a fake Supabase", () => {
   it("passes, sends only GET to the Data API, signs everyone out, and prints no secret", async () => {
     const { fetch, calls } = fakeSupabase(), lines = [];
-    const fails = await runChecks({ fetch, url: "https://abcdefghijklmnopqrst.supabase.co", key: KEY, passwords: PASSWORDS, log: (l) => lines.push(l) });
+    const fails = await runChecks({ fetch, url: "https://abcdefghijklmnopqrst.supabase.co", key: KEY, passwords: PASSWORDS, log: (l) => lines.push(l), reads: M1_READS });
     expect(lines.filter((l) => l.startsWith("FAIL"))).toEqual([]);
     expect(fails).toBe(0);
     expect(calls.filter((c) => c.path.startsWith("/rest/v1/")).every((c) => c.method === "GET")).toBe(true);
@@ -96,13 +97,13 @@ describe("runChecks against a fake Supabase", () => {
   });
   it("reports a leaked row as a failure", async () => {
     const { fetch } = fakeSupabase({ breakRls: true }), lines = [];
-    const fails = await runChecks({ fetch, url: "https://abcdefghijklmnopqrst.supabase.co", key: KEY, passwords: PASSWORDS, log: (l) => lines.push(l) });
+    const fails = await runChecks({ fetch, url: "https://abcdefghijklmnopqrst.supabase.co", key: KEY, passwords: PASSWORDS, log: (l) => lines.push(l), reads: M1_READS });
     expect(fails).toBe(1);
     expect(lines.find((l) => l.startsWith("FAIL"))).toMatch(/signed in, no membership.*submissions/);
   });
   it("reports a wrong password, skips that user's reads, and still signs the others out", async () => {
     const { fetch, calls } = fakeSupabase(), lines = [];
-    const fails = await runChecks({ fetch, url: "https://abcdefghijklmnopqrst.supabase.co", key: KEY, passwords: { ...PASSWORDS, northwind: "typo" }, log: (l) => lines.push(l) });
+    const fails = await runChecks({ fetch, url: "https://abcdefghijklmnopqrst.supabase.co", key: KEY, passwords: { ...PASSWORDS, northwind: "typo" }, log: (l) => lines.push(l), reads: M1_READS });
     expect(fails).toBeGreaterThan(1);
     expect(lines.some((l) => /FAIL.*Northwind.*sign in.*invalid_credentials/.test(l))).toBe(true);
     expect(calls.filter((c) => c.path.startsWith("/auth/v1/logout"))).toHaveLength(3);
@@ -111,7 +112,7 @@ describe("runChecks against a fake Supabase", () => {
     const { fetch: real, calls } = fakeSupabase(), lines = [];
     let n = 0;
     const fetch = async (url, init) => { if (url.includes("/rest/v1/") && ++n === 20) throw new Error("socket hang up"); return real(url, init); };
-    await runChecks({ fetch, url: "https://abcdefghijklmnopqrst.supabase.co", key: KEY, passwords: PASSWORDS, log: (l) => lines.push(l) });
+    await runChecks({ fetch, url: "https://abcdefghijklmnopqrst.supabase.co", key: KEY, passwords: PASSWORDS, log: (l) => lines.push(l), reads: M1_READS });
     expect(calls.filter((c) => c.path.startsWith("/auth/v1/logout"))).toHaveLength(4);
   });
 });
