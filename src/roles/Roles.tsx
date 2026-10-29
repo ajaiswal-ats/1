@@ -1,41 +1,6 @@
-import { useData } from "../data/DataProvider";
-import { TODAY, type Stage } from "../data/fixtures";
-import { STAGES, roleSummary } from "../domain/candidates";
-import { stageColor } from "../progress/shared";
-import { StatusChip } from "./StatusChip";
-
-const COLS: Stage[] = [...STAGES, "Declined"];
-
-/* Roles page (2h vRoles and rolesTable): every role with its latest saved stage counts. */
-export function Roles() {
-  const data = useData();
-  return (
-    <>
-      <div className="pagehead"><div><h1>Roles</h1><p className="lede">Roles Revenue Optics is filling for you.</p></div></div>
-      <section className="card pad">
-        <div className="ltab-wrap">
-          <table className="rtab">
-            <thead><tr><th>Role</th><th>Status</th><th className="n">Shared</th>
-              {COLS.map((s) => <th key={s} className="n stc"><i className="sw" style={{ background: stageColor(s) }} />{s}</th>)}
-              <th className="n">Waiting on you</th><th className="n">Last 7 days</th></tr></thead>
-            <tbody>
-              {data.roles.map((r) => {
-                const x = roleSummary(data, r, TODAY);
-                return (
-                  <tr key={r.id}>
-                    <td><a className="rname" href={`#role-${r.id}`}>{r.title}</a><div className="xs muted">{r.loc}</div></td>
-                    <td><StatusChip status={r.status} /></td>
-                    <td className="n shared">{x.subs.length}</td>
-                    {x.byStage.map((n, i) => <td key={i} className={`n stn${n ? "" : " zero"}`}>{n}</td>)}
-                    <td className="n">{x.waiting ? <span className="chip c-warn">{x.waiting}</span> : "0"}</td>
-                    <td className="n small">{`${x.shared7} shared · ${x.moved7} moved`}</td>
-                  </tr>
-                );
-              })}
-            </tbody>
-          </table>
-        </div>
-      </section>
-    </>
-  );
-}
+import {useData} from "../data/DataProvider";
+import {TODAY,type Dataset} from "../data/fixtures";
+import {roleSummary} from "../domain/candidates";
+import {RolesView,type RolePresentation} from "./RoleViews";
+export function demoRoles(data:Dataset):RolePresentation[]{return data.roles.map(r=>{const x=roleSummary(data,r,TODAY);return {id:r.id,title:r.title,status:r.status,location:r.loc,opened:r.opened,recruiter:r.contact,shared:x.subs.length,byStage:x.byStage,waiting:x.waiting,shared7:x.shared7,moved7:x.moved7,summary:r.summary,holdNote:r.holdNote,responsibilities:r.resp,jobDescription:r.jd,requirementsLabel:r.reqVer,requirements:r.req.map(([text,tier])=>({text,tier:tier==='must'?'must':'preferred'})),contentAvailable:true};});}
+export function Roles(){const data=useData();return <RolesView roles={demoRoles(data)}/>;}

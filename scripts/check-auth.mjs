@@ -241,19 +241,34 @@ try {
   ck("active member: the session is saved for restoring", await storedSession(A));
   await noDemo(A, "workspace shell");
   const waitText = (pg, sel, t) => pg.waitForFunction(([s, x]) => document.querySelector(s)?.textContent?.includes(x), [sel, t], { timeout: 5000 }).then(() => true, () => false);
-  ck("Candidates: the counts come from the database", await waitText(A, ".lede", "4 submissions · 3 people · 2 roles"));
+  ck("Candidates: the counts come from the database", await waitText(A, ".x-head p", "4 submissions · 3 people · 2 roles"));
   ck("Candidates: pipeline cards show database names, headline and the same person's other role",
-    (await A.innerText(".board")).includes("Riley Offline") && (await A.innerText(".board")).includes("Same person · also for Dispatch Planner") && (await A.$$(".ccard")).length === 3);
+    (await A.innerText(".x-board")).includes("Riley Offline") && (await A.innerText(".x-board")).includes("Also for Dispatch Planner") && (await A.$$(".x-card")).length === 3);
   ck("Candidates: nothing invented on cards (no next step, requirements or interview)", (await A.$$(".nextbar, .ccard .meta")).length === 0);
-  ck("Candidates: Waiting on you is disabled and marked not connected", await A.$eval(".fchip.wait", (b) => b.disabled && b.title === "Not connected yet"));
+  ck("Candidates: Waiting on you is disabled and marked not connected", await A.$eval(".x-toggle", (b) => b.disabled && b.title === "Not connected yet"));
   ck("sidebar: role count from the database", (await A.innerText(".client span")) === "2 roles with Revenue Optics");
   await shot(A, "workspace"); await shot(A, "workspace", "dark"); await A.evaluate(() => document.documentElement.setAttribute("data-theme", "light"));
-  await A.click("text=List"); await A.waitForSelector(".ltab");
+  await A.click("text=List"); await A.waitForSelector(".x-ctable");
   ck("Candidates list: stage and shared date from the database; next step, requirements and interview not connected",
-    (await A.innerText(".ltab tbody")).includes("Interview") && (await A.$$eval('.ltab [title="Not connected yet"]', (x) => x.length)) === 12);
+    (await A.innerText(".x-ctable tbody")).includes("Interview") && (await A.$$eval(".x-ctable tbody tr", rs => rs.every(r => r.innerText.includes("Not connected yet") && r.innerText.includes("Not shared")))));
   await shot(A, "candidates-list");
   await A.evaluate(() => (location.hash = "#roles"));
-  ck("Roles: database roles with status, counts and last 7 days", await waitH1(A, "Roles") && (await A.innerText(".rtab")).includes("Dispatch Planner") && (await A.innerText(".rtab")).includes("1 shared · 1 moved"));
+  await waitH1(A, "Roles");
+  const rolesTable = A.getByRole("table");
+  await rolesTable.waitFor({ state: "visible" });
+  const technician = rolesTable.getByRole("row").filter({ has: A.getByRole("link", { name: "Field Technician", exact: true }) });
+  const dispatch = rolesTable.getByRole("row").filter({ has: A.getByRole("link", { name: "Dispatch Planner", exact: true }) });
+  ck("Roles: database roles with status, counts and last 7 days", await rolesTable.getByRole("row").count() === 3
+    && await technician.getByRole("cell", { name: "Open", exact: true }).count() === 1
+    && await dispatch.getByRole("cell", { name: "On hold", exact: true }).count() === 1
+    && (await technician.innerText()).includes("1 shared · 1 moved"));
+  ck("Roles: shared counts have accessible names and scoped Candidates links",
+    await technician.getByRole("link", { name: "3 shared for Field Technician, open in Candidates", exact: true }).getAttribute("href") === "#candidates?role=r11&dec=1"
+    && await dispatch.getByRole("link", { name: "1 shared for Dispatch Planner, open in Candidates", exact: true }).getAttribute("href") === "#candidates?role=r12&dec=1");
+  ck("Roles: recorded stage counts are links; missing Waiting on you data stays explicit",
+    await technician.getByRole("link", { name: "1 in Interview for Field Technician", exact: true }).getAttribute("href") === "#candidates?role=r11&stage=Interview"
+    && await dispatch.getByRole("link", { name: "1 in To review for Dispatch Planner", exact: true }).getAttribute("href") === "#candidates?role=r12&stage=To+review"
+    && await rolesTable.getByRole("cell", { name: "Not connected yet", exact: true }).count() === 2);
   await shot(A, "roles");
   await A.evaluate(() => (location.hash = "#role-r11"));
   ck("role page: database fields; descriptions and requirements not connected", await waitH1(A, "Field Technician") && (await body(A)).includes("requirements are not connected yet"));
@@ -282,7 +297,7 @@ try {
       items.length === 3 && /You moved Riley to Offer$/.test(items[0]) && /Client team moved Riley to Interview$/.test(items[1]) && /Revenue Optics shared Riley for this role$/.test(items[2]), items.join(" | ")); }
   await shot(A, "history");
   await A.evaluate(() => (location.hash = "#candidates"));
-  ck("move: lists and counts are refreshed from the database", await waitText(A, '.col[aria-label="Offer"] .ct', "1"));
+  ck("move: lists and counts are refreshed from the database", await waitText(A, '.x-col[aria-label="Offer"] .x-ct', "1"));
 
   /* Conflict: Jordan Offline (To review v1). The form is opened, then the made-up server changes it (another user). */
   await A.evaluate(() => (location.hash = "#c-5a1a0000-0000-4000-8000-000000000014")); await waitH1(A, "Jordan Offline");
@@ -395,10 +410,11 @@ try {
   await A.click("text=Try again");
   ck("retry after the failure: the workspace opens", await waitClient(A, "Recovered Test Client"));
   await A.evaluate(() => (location.hash = "#roles"));
-  ck("workspace data fails to load: an error with retry, and no data", await waitText(A, ".rempty.dberr", "could not be loaded") && (await A.$(".rtab")) === null);
+  ck("workspace data fails to load: an error with retry, and no data", await waitText(A, ".rempty.dberr", "could not be loaded") && await A.getByRole("table").count() === 0);
   await shot(A, "workspace-error");
   await A.click("text=Try again");
-  ck("retry: an empty workspace shows its empty state", await waitText(A, ".rempty", "No roles yet."));
+  ck("retry: an empty workspace shows its empty state", await A.getByText("No roles yet.", { exact: true }).waitFor({ state: "visible", timeout: 5000 }).then(() => true, () => false)
+    && await A.getByRole("table").count() === 0);
   await A.click("text=Sign out"); await waitH1(A, "Sign in");
 
   /* Account change in another tab of the same browser, while the first account's data is still loading (slow answer). */
@@ -414,7 +430,7 @@ try {
   ck("other tab signed in as someone else: this tab shows only the new account", await waitClient(A, "Second Test Client") && !(await body(A)).includes("Offline Test Client"));
   ck("a member without a job title shows only the name", (await A.innerText(".me .who")).trim() === "Sam Second (test)");
   await A.evaluate(() => (location.hash = "#candidates"));
-  ck("after the switch: only the new client's candidates", await waitText(A, ".board", "Sky Second"));
+  ck("after the switch: only the new client's candidates", await waitText(A, ".x-board", "Sky Second"));
   await A.waitForTimeout(1800);   /* the previous account's slow answers arrive now */
   { const t = await body(A); ck("the previous account's late answers are ignored", !FIRST_NAMES_C1.some((x) => t.includes(x)) && (await A.evaluate(() => window.__staleSeen)) === false); }
   control.slowClient = null;
@@ -445,28 +461,32 @@ try {
   await A.click("[data-tab=summary]");
   ck("milestone 3: no package shared: the empty wording, not 'not connected'", await waitText(A, ".tabp", "No summary is currently shared for this candidate.") && !(await A.innerText(".tabp")).includes("not connected"));
   await A.evaluate(() => (location.hash = "#role-r11"));
+  await waitH1(A, "Field Technician");
+  await A.getByRole("heading", { name: "Job description", exact: true }).click();
+  await A.getByRole("heading", { name: "Requirements (2)", exact: true }).click();
   ck("milestone 3: role page with summary, responsibilities, job description and requirements", await waitH1(A, "Field Technician")
-    && await A.evaluate(() => ["Install and service fictional equipment", "What the role involves", "Keep maintenance records", "Read the full job description", "Forklift certificate", "Preferred", "Version 1 · 1 Oct 2026"]
+    && await A.evaluate(() => ["Install and service fictional equipment", "What the role involves", "Keep maintenance records", "Full job description", "Fictional job description for the offline check.", "Forklift certificate", "Preferred", "Version 1 · 1 Oct 2026"]
       .every((x) => document.body.innerText.includes(x)) && !document.body.innerText.includes("not connected yet.")));
   await shot(A, "m3-role");
   await A.evaluate(() => (location.hash = "#role-r12"));
   ck("milestone 3: a role without an agreed set shows its hold note and no requirements box", await waitH1(A, "Dispatch Planner")
-    && await A.evaluate(() => document.body.innerText.includes("On hold for the offline check.") && !document.querySelector(".rd") && !document.body.innerText.includes("not connected yet.")));
+    && await A.getByRole("heading", { name: /^Requirements/ }).count() === 0
+    && await A.evaluate(() => document.body.innerText.includes("On hold for the offline check.") && !document.body.innerText.includes("not connected yet.")));
   /* Milestone 4: one shared count for the sidebar, the Candidates chip and filter, and the list's waiting rows. */
   await A.evaluate(() => (location.hash = "#candidates"));
   await waitH1(A, "Candidates");
   {
-    const badge = await A.$eval("#nav a[href='#candidates'] .ct", (e) => e.textContent).catch(() => null), chip = await A.$eval(".fchip.wait .ct", (e) => e.textContent);
+    const badge = await A.$eval("#nav a[href='#candidates'] .ct", (e) => e.textContent).catch(() => null), chip = await A.$eval(".x-toggle .x-n", (e) => e.textContent);
     ck("milestone 4: the sidebar badge and the Waiting on you chip agree (1: Riley's interview feedback)", badge === "1" && chip === "1", `${badge} / ${chip}`);
-    ck("milestone 4: the Waiting on you chip is enabled", await A.$eval(".fchip.wait", (b) => !b.disabled));
-    await A.click(".fchip.wait");
+    ck("milestone 4: the Waiting on you chip is enabled", await A.$eval(".x-toggle", (b) => !b.disabled));
+    await A.click(".x-toggle");
     await A.click("text=List");
-    ck("milestone 4: the filter shows exactly the waiting submission", await A.$$eval(".ltab tbody tr", (rs) => rs.length === 1 && rs[0].className === "you" && rs[0].innerText.includes("Riley Offline")
-      && rs[0].innerText.includes("Your feedback") && rs[0].innerText.includes("Interview held · feedback due")));
-    await A.click(".fchip:not(.wait)");
-    const all = await A.$$eval(".ltab tbody tr", (rs) => rs.map((r) => r.innerText));
+    ck("milestone 4: the filter shows exactly the waiting submission", await A.$$eval(".x-ctable tbody tr", (rs) => rs.length === 1 && rs[0].innerText.includes("Riley Offline")
+      && rs[0].innerText.includes("Feedback due") && rs[0].innerText.includes("Held") && rs[0].innerText.includes("Waiting")));
+    await A.click(".x-toggle");
+    const all = await A.$$eval(".x-ctable tbody tr", (rs) => rs.map((r) => r.innerText));
     ck("milestone 4: missing information is shown as missing, never as 'No action needed' for a live candidate",
-      all.some((t) => t.includes("Next step not recorded")) && all.some((t) => t.includes("No client interview recorded")) && all.filter((t) => t.includes("No action needed")).every((t) => t.includes("Declined")));
+      all.some((t) => t.includes("Next step not recorded")) && all.some((t) => t.includes("None recorded")) && all.filter((t) => t.includes("No action needed")).every((t) => t.includes("Declined")));
     await shot(A, "m4-list");
   }
   /* Milestone 5: Hiring progress from the same loaded rows; Sourced and Screened not available; client-team wording. */

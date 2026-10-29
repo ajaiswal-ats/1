@@ -2,23 +2,20 @@ import { useEffect, useState } from "react";
 import { useData } from "../data/DataProvider";
 import { CURRENT_USER } from "../data/fixtures";
 import { roleOf, search } from "../domain/candidates";
-import { useTheme, type Theme } from "../lib/theme";
 import { SearchIcon } from "./icons";
+import { TopBarStart, type NavDrawer } from "./NavDrawer";
 
-export function TopBar() {
-  const [theme, setTheme] = useTheme();
+export function TopBar({ drawer }: { drawer?: NavDrawer }) {
   const data = useData(), [query, setQuery] = useState(""), [open, setOpen] = useState(false), found = search(data, query);
   useEffect(() => {
     const esc = (e: KeyboardEvent) => { if (e.key === "Escape") setOpen(false); };
     document.addEventListener("keydown", esc);
     return () => document.removeEventListener("keydown", esc);
   }, []);
-  const themeButton = (t: Theme, label: string) => (
-    <button type="button" aria-pressed={theme === t} onClick={() => setTheme(t)}>{label}</button>
-  );
   return (
     <header className="topbar">
       <div className="top-in">
+        {drawer && <TopBarStart drawer={drawer} />}
         <div className="search" role="search">
           <SearchIcon />
           <label htmlFor="q" className="sr">Search candidates and roles</label>
@@ -33,10 +30,6 @@ export function TopBar() {
           </div>
         </div>
         <div className="tright">
-          <div className="seg theme" role="group" aria-label="Theme">
-            {themeButton("light", "Light")}
-            {themeButton("dark", "Dark")}
-          </div>
           <div className="me">
             <span className="who"><b>{CURRENT_USER.name}</b><span>{CURRENT_USER.title}</span></span>
             <span className="av me-av" aria-hidden="true">{CURRENT_USER.initials}</span>

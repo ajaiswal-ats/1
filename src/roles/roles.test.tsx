@@ -50,9 +50,9 @@ describe("role counts", () => {
 describe("Roles page", () => {
   it("lists every role with its status and links to its page", () => {
     const h = html(<Roles />);
-    expect(count(h, 'class="rname"')).toBe(4);
+    expect(count(h, 'class="rv-name"')).toBe(4);
     for (const id of ["isl", "pa", "fsr", "rsm"]) expect(h).toContain(`href="#role-${id}"`);
-    expect(h).toContain('<span class="chip c-warn"><i class="d"></i>On hold</span>');
+    expect(h).toContain('<span class="rv-chip rv-wait"><i></i>On hold</span>');
   });
   it("after a reload with saved actions, the table shows the changed counts", () => {
     withStorage({ [DEMO_KEY]: ACTIONS });
@@ -66,30 +66,30 @@ describe("role page", () => {
   it("open role: no hold banner, six stage tiles, Role column left out of its candidate list", () => {
     const h = html(<RolePage id="isl" />);
     expect(h).not.toContain("banner warn");
-    expect(count(h, 'class="ftile')).toBe(6);
+    expect(count(h, 'class="rv-stage"') + count(h, 'class="rv-stage rv-total"')).toBe(6);
     expect(h).not.toContain("<th>Role</th>");
-    expect(count(h, "<tr class=")).toBe(4);
+    expect(count(h, "<tr>")).toBe(4);
   });
   it("on-hold role: hold note banner and On hold chip; its candidates stay listed", () => {
     const h = html(<RolePage id="rsm" />);
-    expect(h).toContain('<div class="banner warn">On hold since 8 Oct 2026.');
+    expect(h).toContain('<div class="rv-banner">On hold since 8 Oct 2026.');
     expect(h).toContain("On hold</span>");
-    expect(count(h, "<tr class=")).toBe(4);
+    expect(count(h, "<tr>")).toBe(5);
   });
   it("the same person links to the submission for this role", () => {
     expect(html(<RolePage id="isl" />)).toContain('href="#c-tb-isl"');
-    expect(html(<RolePage id="isl" />)).not.toContain('href="#c-tb-rsm"');
+    expect(html(<RolePage id="isl" />)).toContain('href="#c-tb-rsm"'); // Also for preserves the other submission link
     expect(html(<RolePage id="rsm" />)).toContain('href="#c-tb-rsm"');
   });
   it("candidates waiting on you come first", () => {
     const h = html(<RolePage id="isl" />), at = (id: string) => h.indexOf(`href="#c-${id}"`);
-    expect(Math.max(at("tb-isl"), at("pr-isl"))).toBeLessThan(Math.min(at("je-isl"), at("mw-isl")));
+    expect(Math.max(at("tb-isl"), at("pr-isl"))).toBeLessThan(at("je-isl"));
   });
   it("after a reload with saved actions, the role page shows the declined candidate and updated tiles", () => {
     withStorage({ [DEMO_KEY]: ACTIONS });
     const h = html(<RolePage id="isl" />);
-    expect(h).toMatch(/<div class="n num">2<\/div><div class="l">Declined<\/div>/);
-    expect(h).toContain("No action needed");
+    expect(h).toMatch(/<b>2<\/b><span>Declined<\/span>/);
+    expect(h).toContain("2 declined hidden");
   });
   it("unknown role: 'Role not found.'", () => {
     expect(html(<RolePage id="nope" />)).toBe("<p>Role not found.</p>");

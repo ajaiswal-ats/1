@@ -15,6 +15,7 @@ import { deriveNext, feedbackTask, interviewLabel, ordered, requirementLine, wai
 import { DataProvider } from "../../src/data/DataProvider.tsx";
 import { RolePage } from "../../src/roles/RolePage.tsx";
 import { FIXTURE, TODAY } from "../../src/data/fixtures.ts";
+import { fd } from "../../src/lib/dates.ts";
 import { seedId } from "../../scripts/db/api-read-lib.mjs";
 import { uiRestoreSql } from "../../scripts/db/ui-moves-lib.mjs";
 import { cleanEntry } from "../../scripts/dev/move-record-lib.mjs";
@@ -30,7 +31,33 @@ async function signIn(p, who = "harbor", fetch = p.fetch) {
 const page = (ws, route) => renderToStaticMarkup(createElement(WorkspacePage, { route, state: { status: "ready", key: "k", ws }, onRetry() {}, today: TODAY }));
 const text = (html) => html.replace(/<[^>]+>/g, " ").replace(/&#x27;/g, "'").replace(/&amp;/g, "&").replace(/\s+/g, " ").trim();
 const sub = (ws, ref) => ws.subs.find((s) => s.id === H(ref));
-const rowsByName = (html) => Object.fromEntries([...html.matchAll(/<tr[^>]*>([\s\S]*?)<\/tr>/g)].slice(1).map((m) => text(m[1])).map((t) => [t.split(" ").slice(0, 2).join(" "), t]));
+const rowsByName = (html) => Object.fromEntries([...html.matchAll(/<tr[^>]*>([\s\S]*?)<\/tr>/g)].slice(1).map((m) => {
+  const cells = [...m[1].matchAll(/<td([^>]*)>([\s\S]*?)<\/td>/g)];
+  const name = text(cells[0][2].match(/<a[^>]*>([\s\S]*?)<\/a>/)[1]);
+  return [name, { candidate: text(cells[0][2]), ...Object.fromEntries(cells.slice(1).map(([, attrs, content]) => [attrs.match(/data-label="([^"]+)"/)[1], text(content)])) }];
+}));
+
+/* Counts are links now, not decorative badges. Check the accessible name, visible count and navigation scope per role. */
+function assertRoleWaiting(ws, expected) {
+  const html = page(ws, "roles"), roleRows = [...html.matchAll(/<tr data-role="([^"]+)">([\s\S]*?)<\/tr>/g)];
+  expect(roleRows).toHaveLength(ws.roles.length);
+  expect(Object.keys(expected)).toHaveLength(ws.roles.length);
+  for (const [roleId, row] of roleRows.map(([, id, row]) => [id, row])) {
+    const role = ws.roles.find(r => r.id === roleId), count = expected[role.title];
+    expect(count, `expected count supplied for ${role.title}`).toBeTypeOf("number");
+    const cell = row.match(/<td data-label="Waiting on you"[^>]*>([\s\S]*?)<\/td>/)[1];
+    expect(text(cell), role.title).toBe(String(count));
+    if (count) {
+      const attrs = cell.match(/<a ([^>]+)>/)[1];
+      expect(attrs, role.title).toContain(`aria-label="${count} waiting on you for ${role.title}"`);
+      const href = attrs.match(/href="([^"]+)"/)[1].replace(/&amp;/g, "&");
+      expect(href.split("?")[0]).toBe("#candidates");
+      const params = new URLSearchParams(href.split("?")[1]);
+      expect(Object.fromEntries(params), role.title).toEqual({ role: roleId, wait: "1" });
+    } else expect(cell, `${role.title}: zero is text, not an actionable count`).not.toContain("<a");
+  }
+  return Object.values(expected).reduce((sum, count) => sum + count, 0);
+}
 
 describe("compatibility: milestone 3 only, milestone 4 without rows, milestone 4 seeded", () => {
   it("milestone 3 only: no steps; Waiting on you stays disabled and marked not connected", async () => {
@@ -38,7 +65,7 @@ describe("compatibility: milestone 3 only, milestone 4 without rows, milestone 4
     expect(ws.steps).toBeNull();
     expect(deriveNext(ws, sub(ws, "tb-isl"), TODAY)).toBeNull();
     const h = page(ws, "candidates");
-    expect(h).toContain('title="Not connected yet">Waiting on you <span class="ct">—</span>');
+    expect(h).toContain('title="Not connected yet">Waiting on you <span class="x-n">—</span>');
     expect(h).toContain("Next steps, requirement evidence and interviews are not connected yet.");
   });
   it("milestone 4 without rows: reviews only where a summary is shared; no interview is inferred from the stage", async () => {
@@ -52,17 +79,17 @@ describe("compatibility: milestone 3 only, milestone 4 without rows, milestone 4
   it("milestone 4 seeded: 5 waiting on you, the same in every view", async () => {
     const ws = await (await signIn(await createProject())).load();
     expect(waitingCount(ws, ws.subs, TODAY)).toBe(5);
-    expect(page(ws, "candidates")).toContain('Waiting on you <span class="ct">5</span>');
-    const roles = page(ws, "roles");
-    expect([...roles.matchAll(/<span class="chip c-warn">(\d+)<\/span>/g)].reduce((n, m) => n + Number(m[1]), 0)).toBe(5);
+    expect(page(ws, "candidates")).toContain('Waiting on you <span class="x-n">5</span>');
+    expect(assertRoleWaiting(ws, { "Inside Sales Leader": 2, "Pricing Analyst": 1, "Field Sales Representative": 1, "Regional Sales Manager": 1 })).toBe(5);
     /* The same person on two roles counts per submission: Taylor Brooks' review and her interview feedback. */
     expect(["tb-isl", "tb-rsm"].map((r) => deriveNext(ws, sub(ws, r), TODAY).kind)).toEqual(["review", "feedback"]);
-    /* Ordering: waiting first, longest waiting first; the list's "you" rows are exactly the waiting ones. */
+    /* Ordering: waiting first, longest waiting first; accessible Next step content identifies the waiting row. */
     const order = ordered(ws, ws.subs, TODAY).map((s) => s.id);
     expect(order.slice(0, 5).every((id) => waitingOnYou(ws, ws.subs.find((s) => s.id === id), TODAY))).toBe(true);
     expect(order[0]).toBe(H("tb-rsm"));
     const list = page(ws, `role-${seedId("role", "harbor", "rsm")}`);
-    expect((list.match(/<tr class="you">/g) ?? []).length).toBe(1);
+    const roleRows = Object.values(rowsByName(list));
+    expect(roleRows.filter(row => row["Next step"].includes("Waiting ")).map(row => row["Next step"])).toEqual(["Feedback due Waiting 6 days"]);
   });
   it("Northwind: the cancelled newer round is current, so the older round's feedback is not a task", async () => {
     const ws = await (await signIn(await createProject(), "northwind")).load();
@@ -82,17 +109,30 @@ describe("parity with the demo's fixtures", () => {
       expect([n.who, n.kind], f.id).toEqual([f.next.who, f.next.kind]);
     }
   });
-  it("each role page's list rows read as the demo's, with the documented differences", async () => {
+  it("role lists preserve shared facts while showing missing screening and recorded interview facts independently", async () => {
     const ws = await (await signIn(await createProject())).load();
+    expect(ws.screening).toBeNull(); // This milestone-4 fixture has no milestone-6 screening relation.
     for (const r of FIXTURE.roles) {
       const demo = rowsByName(renderToStaticMarkup(createElement(DataProvider, null, createElement(RolePage, { id: r.id }))));
       const db = rowsByName(page(ws, `role-${seedId("role", "harbor", r.id)}`));
       expect(Object.keys(db).sort(), r.id).toEqual(Object.keys(demo).sort());
       for (const [name, row] of Object.entries(demo)) {
-        /* Screening calls are not connected; Daniel Okafor's summary is hidden (withdrawn and paused), so no requirement count. */
-        const want = row.replace("Screening call available", "No client interview recorded").replace("No interview yet", "No client interview recorded")
-          .replace(name === "Daniel Okafor" ? /\d+ of \d+ must-haves supported/ : /$^/, "—");
-        expect(db[name], `${r.id} ${name}`).toBe(want);
+        const fixture = FIXTURE.subs.find(f => f.role === r.id && f.name === name), record = sub(ws, fixture.id);
+        for (const field of ["candidate", "Stage", "Shared", "Next step"]) expect(db[name][field], `${r.id} ${name}: ${field}`).toBe(row[field]);
+        expect(db[name]["Shared"]).toBe(fd(record.sharedOn));
+        expect(db[name]["Recruiter screening"], `${r.id} ${name}: no screening date may be inferred`).toBe("Not connected yet");
+        if (name === "Daniel Okafor") {
+          expect(requirementLine(ws, record)).toBeNull(); // His summary is not visible to this client.
+          expect(db[name].Requirements).toBe("Not shared Must-haves");
+        } else expect(db[name].Requirements, `${r.id} ${name}: visible requirement evidence`).toBe(row.Requirements);
+        if (fixture.client.status === "feedback") {
+          // The database records a held date; the legacy demo only records feedback. Never copy one into the other.
+          const round = ws.steps.interviews.get(record.id).at(-1);
+          expect(round.status).toBe("held");
+          expect(round.heldOn).toBeTruthy();
+          expect(db[name]["Client interview"]).toBe(`Held ${fd(round.heldOn)} · feedback given`);
+          expect(row["Client interview"]).toBe("Held · feedback given");
+        } else expect(db[name]["Client interview"], `${r.id} ${name}: recorded interview status`).toBe(row["Client interview"]);
       }
     }
   });
@@ -120,6 +160,7 @@ describe("counts after decisions (supabase-js, the real controller)", () => {
     expect(await act("ab-fsr", { action: "decline", note: "Not a fit.", category: null })).toBe("saved");
     let ws = await c.load();
     expect(waitingCount(ws, ws.subs, TODAY)).toBe(4);
+    expect(assertRoleWaiting(ws, { "Inside Sales Leader": 2, "Pricing Analyst": 1, "Field Sales Representative": 0, "Regional Sales Manager": 1 })).toBe(4);
     expect(await act("tb-rsm", { action: "feedback", about: null, text: "General thoughts." })).toBe("saved");   // general: completes nothing
     ws = await c.load();
     expect(waitingCount(ws, ws.subs, TODAY)).toBe(4);
@@ -136,7 +177,7 @@ describe("counts after decisions (supabase-js, the real controller)", () => {
     expect(waitingCount(ws, ws.subs, TODAY)).toBe(2);
     expect(deriveNext(ws, sub(ws, "pr-isl"), TODAY).short).toBe("Recruiter to follow up");
     expect(interviewLabel(ws, sub(ws, "pr-isl"))[1]).toBe("No client interview recorded");
-    expect(page(ws, "candidates")).toContain('Waiting on you <span class="ct">2</span>');
+    expect(page(ws, "candidates")).toContain('Waiting on you <span class="x-n">2</span>');
   });
   it("Jordan's scheduled round recorded held, then a move to Offer: feedback stays enabled and he stays waiting in every count", async () => {
     const p = await createProject(), { c, act } = await controller(p);
@@ -156,9 +197,8 @@ describe("counts after decisions (supabase-js, the real controller)", () => {
     expect(detail).toMatch(/data-form="feedback"(?![^>]*disabled)/);
     expect(text(detail)).toContain("Share interview feedback");
     expect(waitingCount(ws, ws.subs, TODAY)).toBe(6);
-    expect(page(ws, "candidates")).toContain('Waiting on you <span class="ct">6</span>');
-    const roles = page(ws, "roles");
-    expect([...roles.matchAll(/<span class="chip c-warn">(\d+)<\/span>/g)].reduce((n, m) => n + Number(m[1]), 0)).toBe(6);
+    expect(page(ws, "candidates")).toContain('Waiting on you <span class="x-n">6</span>');
+    expect(assertRoleWaiting(ws, { "Inside Sales Leader": 3, "Pricing Analyst": 1, "Field Sales Representative": 1, "Regional Sales Manager": 1 })).toBe(6);
     expect(ordered(ws, ws.subs, TODAY).slice(0, 6).every((s) => waitingOnYou(ws, s, TODAY))).toBe(true);
   });
   it("a round-linked feedback for a round that is no longer current is refused, changing nothing", async () => {

@@ -45,12 +45,12 @@ const ROUTES = ["candidates", "roles", "progress", "c-s1", "role-r1", "c-unknown
 describe("Roles (database)", () => {
   it("lists each role with status, shared, stage counts and last 7 days; Waiting on you is not connected", () => {
     const h = page("roles");
-    expect(h).toContain('href="#role-r1">Warehouse Lead</a><div class="xs muted">Reno, NV</div>');
-    expect(h).toContain('href="#role-r2">Buyer</a></td>');                   // no location: nothing invented
-    expect(h).toContain('<span class="chip c-warn"><i class="d"></i>On hold</span>');
+    expect(h).toContain('href="#role-r1">Warehouse Lead</a><span class="rv-sub">Reno, NV</span>');
+    expect(h).toContain('href="#role-r2">Buyer</a><span class="rv-sub"></span></td>');                   // no location: nothing invented
+    expect(h).toContain('<span class="rv-chip rv-wait"><i></i>On hold</span>');
     expect(h).toContain("2 shared · 1 moved");
     expect(h).toContain("&quot;Waiting on you&quot; is not connected yet.");
-    expect(h).toContain('title="Not connected yet">—</span>');
+    expect(h).toContain('class="rv-zero">Not connected yet</span>');
   });
   it("a role page shows database fields, counts and its candidates; descriptions and requirements are not connected", () => {
     const h = page("role-r1");
@@ -69,10 +69,12 @@ describe("Candidates (database)", () => {
   it("pipeline cards show name, headline, role and the same person's other roles, and nothing invented", () => {
     const h = page("candidates");
     expect(h).toContain("3 submissions · 2 people · 2 roles");
-    expect(h).toContain('<div class="nm">Jo Doe</div><div class="hd">Ops · Example Co</div><div class="rl">Warehouse Lead</div><div class="also2">Same person · also for Buyer</div>');
+    expect(h).toContain('href="#c-s1">Jo Doe</a>');
+    expect(h).toContain('<p class="x-hd">Ops · Example Co</p>');
+    expect(h).toContain('href="#c-s2">Buyer</a>');
     expect(h).not.toContain("nextbar");
-    expect(h).not.toContain("must-haves");
-    expect(h).toContain("Show declined (1)");
+    expect(h).toContain("Not shared");
+    expect(h).toContain("1 declined hidden");
     expect(h).toMatch(/disabled="" aria-disabled="true" title="Not connected yet">Waiting on you/);
     expect(h).toContain("Next steps, requirement evidence and interviews are not connected yet.");
   });
@@ -186,5 +188,19 @@ describe("states", () => {
     const other = shell(auth("u2", "c2"), ready);           // the data is for u1:c1
     expect(other).not.toContain("Jo Doe");
     expect(other).toContain("Loading workspace data…");
+  });
+});
+
+describe('Help and support route',()=>{
+  it('uses only the loaded workspace recruiter details',()=>{
+    const h=page('help');
+    expect(h).toContain('<h1>Help and support</h1>');
+    expect(h).toContain('Alex Kim');expect(h).toContain('Warehouse Lead');
+    expect(h).not.toContain(CLIENT.name);expect(h).not.toContain('Jamie Scott');
+    expect(h).toContain('id="cMsg"');
+  });
+  it('keeps static help available without substituting demo contacts when data is unavailable',()=>{
+    const h=page('help',{status:'loading',key:'u1:c1'});
+    expect(h).toContain('Help and support');expect(h).toContain('Recruiter details are not available in this workspace.');expect(h).not.toContain('Alex Kim');
   });
 });

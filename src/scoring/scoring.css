@@ -1,0 +1,103 @@
+/* Scoring test page only: small additions to the portal's existing styles (which are not changed). */
+.sc-status{display:flex;align-items:center;flex:1}
+.sc-list td{font-size:13px}
+.sc-map{margin-top:10px;font-size:13px}
+.sc-map summary{cursor:pointer;color:var(--link)}
+.sc-q{margin:0 0 6px}
+.sc-q q{color:var(--ink)}
+.sc-ok{color:var(--ok-fg)}
+.sc-bad{color:var(--crit-fg);font-weight:600}
+.sc-flag{color:var(--warn-fg);margin-top:3px}
+.sc-excluded td{opacity:.7}
+.sc-scroll{overflow-x:auto}
+.sc-anchors td.ev{font-size:12px;min-width:120px}
+.sc-steps{margin:0 0 12px;padding-left:20px;font-size:13px;line-height:1.6}
+.sc-form select,.sc-form textarea{width:100%;border:1px solid var(--line-2);border-radius:3px;padding:7px 9px;background:var(--surface);color:var(--ink);font:inherit;font-size:13px}
+.sc-details{margin-top:14px}
+.sc-details>summary{font-weight:600}
+/* Layout in this test mode only (this file is not loaded in normal modes): the client preview has no Next step column,
+   and narrow windows stack the assessment above the panel instead of reserving 320px beside it. */
+.cd.cd-solo{grid-template-columns:minmax(0,1fr)}
+.sc-panel{overflow-wrap:anywhere}
+.sc-open .reqlist li{gap:8px;align-items:flex-start}
+@media (max-width:1199px){
+  .cd{grid-template-columns:minmax(0,1fr)}
+  .cd>.act{position:static;border-left:none!important;border-top:1px solid var(--line)!important}
+  .cd>.act .pad{position:static}
+}
+@media (max-width:720px){
+  /* The view switch adds a second control group to the top bar: let the group wrap instead of widening the page. */
+  .tright{flex-wrap:wrap;gap:8px;margin-left:0;min-width:0;max-width:100%}
+  .tabp{padding:16px 14px 20px}
+  .chead{padding:16px 14px 0}
+  .cd>.card>.tabs{padding:0 14px}
+}
+/* Inside the assessment, layout follows the space the panel actually has (it shares the row with the Next step panel). */
+.sc-panel{container:sc/inline-size}
+@container sc (max-width:620px){
+  .sc-open .reqlist li{flex-direction:column;align-items:flex-start;gap:4px}
+  .two{grid-template-columns:minmax(0,1fr)}
+  .two .box{border-left:none;border-top:1px solid var(--line)}
+  .two .box:first-child{border-top:none}
+  .kf{grid-template-columns:minmax(0,1fr)}
+  .kf dd{margin-bottom:6px}
+  .sc-form select{width:100%!important}
+}
+/* Requirement tables become one block per row where a four-column table would squeeze the evidence; the wide reference
+   table (rating anchors) keeps its own horizontal scroll. */
+@container sc (max-width:860px){
+  .req:not(.sc-anchors) thead{display:none}
+  .req:not(.sc-anchors) tr{display:block;border-bottom:1px solid var(--line);padding:6px 0}
+  .req:not(.sc-anchors) td{display:block;width:auto;border-bottom:none;padding:3px 0}
+  .req .rq,.req .st{width:auto}
+  /* Without column headings, each cell says what it is. */
+  .req td[data-label]:not(:empty)::before{content:attr(data-label) ": ";font-weight:600;color:var(--ink-3);font-size:12px}
+}
+/* The local "Assess a CV" page. */
+.sc-flow{margin-top:14px}
+.sc-step{font-size:15px;margin:0 0 10px}
+.sc-sub{font-size:13px;margin:14px 0 6px;text-transform:uppercase;letter-spacing:.06em;color:var(--ink-3);font-family:var(--cond)}
+.sc-text{max-height:420px;overflow:auto;border:1px solid var(--line);padding:4px 10px;background:var(--surface-2)}
+.sc-text pre{white-space:pre-wrap;overflow-wrap:anywhere;font-family:var(--mono);font-size:12px;margin:0;color:var(--ink)}
+/* The scoring tool's home screen ("Assess candidates"). */
+.sc-home{padding:4px 16px 8px}
+.sc-home-t td{vertical-align:middle}
+.sc-home-t .sc-open-c{width:1%;text-align:right;white-space:nowrap}
+/* The candidate summary's expandable items (strengths, To confirm, All requirements). */
+.sc-items{list-style:none;margin:6px 0 0;padding:0}
+.sc-items>li{border-bottom:1px solid var(--line);font-size:13px}
+.sc-items>li:last-child{border-bottom:0}
+.sc-item>summary{display:flex;justify-content:space-between;align-items:flex-start;gap:10px;padding:7px 0;cursor:pointer;list-style:none}
+.sc-item>summary::-webkit-details-marker{display:none}
+.sc-item>summary .sc-item-n::before{content:"▸";display:inline-block;width:14px;color:var(--muted)}
+.sc-item[open]>summary .sc-item-n::before{content:"▾"}
+.sc-item-b{padding:0 0 10px 14px}
+.sc-item-b p{margin:4px 0 0}
+.sc-item-plain{padding:7px 0 7px 14px}
+/* The status may be a long label (a rule check's status): it wraps within its column instead of overflowing, and on
+   narrow screens it moves under the requirement's name. */
+.sc-item-n{flex:1 1 auto;min-width:0}
+.sc-item-s{display:flex;flex-direction:column;align-items:flex-end;gap:2px;flex:0 1 auto;min-width:0;max-width:50%}
+.sc-item-s .chip{white-space:normal;text-align:right;overflow-wrap:anywhere}
+@media (max-width:640px){.sc-item>summary{flex-wrap:wrap;row-gap:4px}.sc-item-s{max-width:100%;flex-basis:100%;align-items:flex-start;padding-left:14px}.sc-item-s .chip{text-align:left}}
+.sc-rules{display:flex;align-items:baseline;gap:8px;flex-wrap:wrap;margin-top:8px}
+.sc-qs{margin:0;padding-left:20px}
+.sc-qs>li{margin:0 0 8px}
+.sc-open .reqlist .chip{white-space:normal;overflow-wrap:anywhere}
+.sc-q-h{display:flex;justify-content:space-between;align-items:flex-start;gap:10px}
+.sc-q-h .chip{flex:none}
+.sc-points{margin:2px 0 0;padding-left:18px}
+.sc-qs-core{list-style:none;padding-left:0} /* core questions carry their own IDs (Q1…) */
+.sc-answer{width:100%;min-height:54px;margin-top:6px;border:1px solid var(--line-2);border-radius:3px;padding:6px 8px;background:var(--surface);color:var(--ink);font:inherit;font-size:13px}
+.sc-rating{margin-top:6px;padding:6px 8px;border-left:2px solid var(--line-2)}
+.sc-fix{margin-top:6px;display:grid;gap:6px}
+.sc-fix textarea,.sc-fix input{width:100%}
+.sc-excerpt-for{border:0;margin:4px 0 0;padding:0;display:flex;flex-wrap:wrap;gap:4px 12px}
+.sc-excerpt-for legend{padding:0;margin-bottom:2px}
+.sc-excerpt-for label{display:inline-flex;align-items:center;gap:4px}
+.sc-excerpt-for input{width:auto}
+.sc-callsum .box{margin-top:8px}
+.sc-fix select{max-width:200px}
+.sc-claim{margin:0 0 10px}
+.sc-stands{margin-top:14px}
+.sc-stands .statusdl dd{margin-bottom:6px}

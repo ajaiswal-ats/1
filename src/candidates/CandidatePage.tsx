@@ -1,3 +1,5 @@
+import {readBoardAction} from "./boardActions";
+import { useCandidatesHref, useCandidateReturn } from "../lib/candidatesRoute";
 import { Fragment, useEffect, useRef, useState, type FormEvent, type ReactNode } from "react";
 import { PinIcon } from "../components/icons";
 import { useToast } from "../components/Toast";
@@ -21,10 +23,12 @@ const toSec = (t: string) => { const [m, x] = t.split(":").map(Number); return (
 type Form = { kind: "move"; to: Exclude<Stage, "Declined"> } | { kind: "decline" } | { kind: "feedback" };
 
 export function CandidatePage({ id }: { id: string }) {
+  const candidatesHref=useCandidatesHref();
+  const back=useCandidateReturn();
   const data = useData(), c = data.subs.find((s) => s.id === id);
   const [tab, setTab] = useState<Tab>("summary"), [pos, setPos] = useState(0);
-  const [form, setForm] = useState<Form | null>(null), [saved, setSaved] = useState<string | null>(null);
-  if (!c) return <p>Candidate not found. <a href="#candidates">Back to Candidates</a></p>;
+  const [form, setForm] = useState<Form | null>(()=>{if(!c||typeof location==='undefined')return null;const p=permitted(data,c);return readBoardAction(location.hash,p.moveTo,p.decline);}), [saved, setSaved] = useState<string | null>(null);
+  if (!c) return <p>Candidate not found. <a href={candidatesHref}>Back to Candidates</a></p>;
 
   const role = roleOf(data, c), others = otherSubmissions(data, c), t = nextStep(c, TODAY), [, iv] = interviewLabel(c), si = STAGES.indexOf(c.stage);
   const outcome = c.outcome ? `${c.outcome.status} · recorded by Revenue Optics ${fd(c.outcome.d)}` : c.stage === "Offer" || c.stage === "Hired" ? "Not recorded yet" : null;
@@ -35,7 +39,7 @@ export function CandidatePage({ id }: { id: string }) {
 
   return (
     <>
-      <nav className="crumb" aria-label="Breadcrumb"><a href="#candidates">← Back to candidates</a><span className="muted">/</span><a href={`#role-${role.id}`}>{role.title}</a></nav>
+      <nav className="crumb" aria-label="Breadcrumb"><a href={back.href}>← {back.label}</a><span className="muted">/</span><a href={`#role-${role.id}`}>{role.title}</a></nav>
       <div className="cd">
         <div className="card" style={{ minWidth: 0 }}>
           <div className="chead">
@@ -162,11 +166,12 @@ function Notes({ c }: { c: Submission }) {
 function Actions({ c, form, saved, onOpen, onDone }: {
   c: Submission; form: Form | null; saved: string | null; onOpen: (f: Form | null) => void; onDone: (a: DemoAction) => void;
 }) {
+  const candidatesHref=useCandidatesHref();
   const data = useData(), role = roleOf(data, c), p = permitted(data, c), [moveTo, setMoveTo] = useState<string>("");
   if (saved) return (
     <>
       <div className="nextbox done" style={{ marginBottom: 4 }}><b>{saved}</b><span className="small">Saved in this mockup only. Nothing was sent.</span></div>
-      <a className="btn btn-p" href="#candidates" id="backPipe">Back to pipeline</a>
+      <a className="btn btn-p" href={candidatesHref} id="backPipe">Back to pipeline</a>
     </>
   );
   if (form) return <ActionForm c={c} form={form} onCancel={() => onOpen(null)} onDone={onDone} />;

@@ -7,6 +7,8 @@
     "dev": "vite",
     "build": "tsc -b && vite build",
     "typecheck": "tsc -b",
+    "assessment-preview:build": "vite build --config vite.preview.config.mjs && node scripts/preview/export-data.mjs",
+    "assessment-preview:serve": "vite preview --config vite.preview.config.mjs",
     "test": "vitest run",
     "preview": "vite preview",
     "compare:shell": "node scripts/compare-shell.mjs",
@@ -31,7 +33,14 @@
     "db:api:moves": "node scripts/db/api-moves.mjs",
     "db:ui-moves:restore-sql": "node scripts/db/ui-moves-restore.mjs",
     "db:test:offline": "vitest run --config vitest.offline-db.config.mjs",
-    "db:check-secrets": "node scripts/db/check-no-secrets.mjs"
+    "db:check-secrets": "node scripts/db/check-no-secrets.mjs",
+    "scoring:dev": "vite --config vite.scoring.config.mjs",
+    "scoring:dev:ai": "SCORING_AI_ROUTE=claude-cli SCORING_AI_MODEL=sonnet SCORING_AI_MAX_USD=1 SCORING_AI_TIMEOUT_MS=600000 vite --config vite.scoring.config.mjs",
+    "scoring:check": "node scripts/scoring/check-isolation.mjs",
+    "scoring:run": "node scripts/scoring/run-assessments.mjs",
+    "scoring:eval-pack": "node scripts/scoring/evaluation-pack.mjs",
+    "scoring:check-migration": "node scripts/scoring/check-migration.mjs",
+    "extract": "node scripts/extract/cli.mjs"
   },
   "dependencies": {
     "@fontsource/ibm-plex-mono": "^5.3.0",

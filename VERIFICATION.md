@@ -15,6 +15,7 @@ Kinds of evidence, kept separate below:
 | Unit and view tests | `npm test` | 290 passed (25 Oct) |
 | In-memory database tests: migrations, seeds, access rules, client functions, loaders, Hiring progress, screening summaries, the read-only API check flow | `npm run db:test:offline` | 152 passed (25 Oct) |
 | Supabase-mode screens in a browser against an offline stand-in | `npm run check:auth` | 93 passed (25 Oct) |
+| Local fake Manatal inbound preview (fake source and fictional records only; **not** verification of Manatal's API) | `npm test` (`scripts/manatal/import-preview.test.mjs`) | 28 passed (26 Oct) |
 | Typecheck, production build, secret scan of browser and build files | `npm run typecheck`, `npm run build`, `npm run db:check-secrets` | Passed (25 Oct) |
 | Demo persistence across two tabs (self-contained; needs the demo-mode dev server) | `npm run check:persistence` | Passed at the last run (25 Oct) |
 | Design comparisons with the approved design prototype (**not self-contained**: need the prototype, which is not in this repository) | `npm run compare:shell`, `compare:progress`, `compare:candidates`, `compare:candidate`, `compare:roles` | All passed at the last full run (25 Oct). `compare:candidate` and `compare:progress` re-run after later changes the same day: passed |

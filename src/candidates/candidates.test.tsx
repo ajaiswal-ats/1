@@ -20,24 +20,25 @@ const count = (s: string, sub: string) => s.split(sub).length - 1;
 const empty: Dataset = { ...FIXTURE, subs: [], moves: [], search: [], held: [] };
 
 describe("Candidates page", () => {
-  it("defaults to Pipeline: 4 stage columns with 10 cards, declined hidden behind 'Show declined (2)'", () => {
+  it("defaults to Pipeline: 4 stage columns with 10 cards, declined hidden consistently", () => {
     const h = page();
     expect(h).toContain("12 submissions · 11 people · 4 roles");
-    expect(count(h, 'class="col"')).toBe(4);
-    expect(count(h, 'class="ccard ')).toBe(10);
-    expect(h).toContain("Show declined (2)");
-    expect(h).toContain('Waiting on you <span class="ct">5</span>');
-    expect(h).toContain("Regional Sales Manager (on hold)</option>");
+    expect(count(h, 'class="x-col"')).toBe(4);
+    expect(count(h, 'class="x-card"')).toBe(10);
+    expect(h).toContain("2 declined hidden");
+    expect(h).toContain('Waiting on you <span class="x-n">5</span>');
+    expect(h).toContain("Role on hold");
   });
-  it("List view shows all 12 rows, declined included", () => {
+  it("List view uses the same declined exclusion as the board", () => {
     withStorage({ "ro-portal-candidates": { view: "list" } });
-    expect(count(page(), "<tr class=")).toBe(12);
+    expect(count(page(), '<td class="x-first">')).toBe(10);
   });
   it("one role: lede names the role and cards drop the role line", () => {
     withStorage({ "ro-portal-candidates": { role: "rsm" } });
     const h = page();
-    expect(h).toContain("4 submissions · 4 people · Regional Sales Manager");
-    expect(count(h, 'class="rl"')).toBe(0);
+    expect(h).toContain("Role: Regional Sales Manager");
+    expect(count(h, 'class="x-card"')).toBe(4);
+    expect(count(h, 'class="x-rl"')).toBe(0);
   });
   it("remembered values that are no longer valid fall back to the defaults", () => {
     withStorage({ "ro-portal-candidates": { role: "gone", filter: "iv" } });
@@ -46,14 +47,14 @@ describe("Candidates page", () => {
 });
 
 describe("empty states", () => {
-  it("no submissions: every column says 'No candidates here'", () => {
+  it("no submissions: honest workspace empty state", () => {
     const h = page(empty);
     expect(h).toContain("0 submissions · 0 people · 4 roles");
-    expect(count(h, '<div class="col-empty">No candidates here</div>')).toBe(4);
+    expect(h).toContain("No candidates have been shared yet.");
   });
-  it("Waiting on you with empty columns says 'for this filter'", () => {
+  it("Waiting on you keeps empty stage columns", () => {
     withStorage({ "ro-portal-candidates": { filter: "you" } });
-    expect(count(page(), "No candidates here for this filter")).toBe(2);
+    expect(count(page(), "None in this view")).toBe(2);
   });
   it("List with nothing to show says 'No candidates match this filter.'", () => {
     const h = renderToStaticMarkup(<DataProvider><CandidateTable list={[]} /></DataProvider>);
@@ -71,5 +72,17 @@ describe("candidate route", () => {
   });
   it("an unknown id says so, as 2h does", () => {
     expect(html("nope")).toContain("Candidate not found.");
+  });
+});
+
+
+describe("Candidates metadata retains source facts", () => {
+  it("does not turn the legacy feedback date into a client-interview held date", () => {
+    withStorage({ "ro-portal-candidates": { view: "list" } });
+    const h=page(), grace=h.match(/<tr>[\s\S]*?<\/tr>/g)?.find(row=>row.includes('>Grace Liu</a>'));
+    expect(grace).toBeDefined();
+    const interview=grace!.match(/data-label="Client interview"[^>]*>([\s\S]*?)<\/td>/)?.[1].replace(/<[^>]*>/g, "");
+    expect(interview).toBe("Held · feedback given");
+    expect(grace).toContain('data-label="Shared" class="x-num x-sm"><span class="x-nwg"><span class="x-nw">10 Sep</span>');
   });
 });

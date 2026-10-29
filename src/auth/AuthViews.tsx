@@ -1,8 +1,11 @@
+import { CandidatesContextScope, useCandidatesHref } from "../lib/candidatesRoute";
 import { useState, type FormEvent, type ReactNode } from "react";
 import logo from "../assets/revenue-optics-logo.png";
 import { BriefIcon, ChartIcon, PeopleIcon } from "../components/icons";
-import { useTheme, type Theme } from "../lib/theme";
-import { navFor, type NavKey } from "../lib/route";
+import { ShellActions } from "../components/ShellActions";
+import { isCandidatesList, navFor, type NavKey } from "../lib/route";
+import { NavScrim, TopBarStart, useNavDrawer } from "../components/NavDrawer";
+import { useWorkspaceExtension } from "../workspace/extensions";
 import type { AuthState, ClientInfo, Member, SessionUser } from "./session";
 import { WorkspacePage, NO_MOVES, type MovesProps } from "../workspace/DbViews";
 import { keyOf, type WorkspaceState } from "../workspace/store";
@@ -15,7 +18,15 @@ import { waitingCount } from "../workspace/next";
 
 export interface AuthActions { signIn(email: string, password: string): void; signOut(): void; retry(): void }
 /** Workspace data for the signed-in account, and how to retry loading it. */
-export interface WorkspaceProps { state: WorkspaceState; retry(): void; today?: string; moves?: Omit<MovesProps, "account"> & { account?: string }; devRecording?: boolean }
+export interface WorkspaceProps {
+  state: WorkspaceState; retry(): void; today?: string; moves?: Omit<MovesProps, "account"> & { account?: string }; devRecording?: boolean;
+  /** Replaces the development line under the top bar (the local scoring test uses it to say what it is). */
+  modeLine?: string;
+  /** No session to end (the local scoring test has no sign-in). */
+  noSignOut?: boolean;
+  /** Extra controls at the start of the top bar's right side (the local scoring test's view switch). */
+  topControls?: ReactNode;
+}
 const NO_WORKSPACE: WorkspaceProps = { state: { status: "idle" }, retry: () => {} };
 
 const DEV_NOTE = "Development · fictional test accounts only · access is by invitation";
@@ -116,45 +127,49 @@ export const initials = (name: string) =>
   name.replace(/\([^)]*\)/g, " ").split(/\s+/).filter((w) => /^\p{L}/u.test(w)).slice(0, 2).map((w) => w[0].toUpperCase()).join("");
 
 function Workspace({ route, user, member, client, onSignOut, workspace }: { route: string; user: SessionUser; member: Member; client: ClientInfo; onSignOut(): void; workspace: WorkspaceProps }) {
-  const current = navFor(route), [theme, setTheme] = useTheme();
+  const current = navFor(route), drawer = useNavDrawer();
   /* Data is used only if it belongs to this exact user and client; anything else counts as still loading. */
   const key = keyOf({ userId: user.id, clientId: client.id }), raw = workspace.state;
+  const candidatesHref=useCandidatesHref(key);
   const ws: WorkspaceState = raw.status !== "idle" && raw.key === key ? raw : { status: "loading", key };
   const note = ws.status === "ready" ? `${ws.ws.roles.length} ${ws.ws.roles.length === 1 ? "role" : "roles"} with Revenue Optics` : "Client workspace";
   const today = workspace.today ?? utcToday(), waiting = ws.status === "ready" && ws.ws.steps ? waitingCount(ws.ws, ws.ws.subs, today) : 0;
-  const here = (k: NavKey) => (current === k ? { "aria-current": "page" as const } : {});
-  const themeButton = (t: Theme, label: string) => <button type="button" aria-pressed={theme === t} onClick={() => setTheme(t)}>{label}</button>;
+  const tools = useWorkspaceExtension()?.tools ?? [], isTool = tools.some((t) => t.route === route);
+  const here = (k: NavKey) => (current === k && !isTool ? { "aria-current": "page" as const } : {});
   return (
-    <div className="shell">
-      <aside className="side" aria-label="Main navigation">
+    <CandidatesContextScope.Provider value={key}><div className={drawer.open ? "shell nav-open" : "shell"}>
+      <aside className="side" id="side" aria-label="Main navigation">
         <div className="sbrand"><span className="lg"><img alt="Revenue Optics" src={logo} /></span></div>
         <div className="client"><b>{client.name}</b><span>{note}</span></div>
         <nav className="nav" id="nav">
-          <a href="#candidates" {...here("candidates")}><PeopleIcon />Candidates{waiting > 0 && <span className="ct" aria-label={`${waiting} waiting on you`}>{waiting}</span>}</a>
+          <a href={candidatesHref} {...here("candidates")}><PeopleIcon />Candidates{waiting > 0 && <span className="ct" aria-label={`${waiting} waiting on you`}>{waiting}</span>}</a>
           <a href="#roles" {...here("roles")}><BriefIcon />Roles</a>
           <div className="grp">Reports</div>
           <a href="#progress" {...here("progress")}><ChartIcon />Hiring progress</a>
+          {tools.length > 0 && <><div className="grp">Recruiter tools</div>{tools.map((t) => <a key={t.route} href={`#${t.route}`} {...(route === t.route ? { "aria-current": "page" as const } : {})}><BriefIcon />{t.label}</a>)}</>}
         </nav>
+        <ShellActions current={current} onSignOut={workspace.noSignOut ? undefined : onSignOut} />
       </aside>
+      <NavScrim drawer={drawer} />
       <div className="main">
         <header className="topbar">
           <div className="top-in">
+            <TopBarStart drawer={drawer} />
             <div className="tright">
-              <div className="seg theme" role="group" aria-label="Theme">{themeButton("light", "Light")}{themeButton("dark", "Dark")}</div>
+              {workspace.topControls}
               <div className="me">
                 <span className="who"><b>{member.displayName}</b>{member.jobTitle && <span>{member.jobTitle}</span>}</span>
                 <span className="av me-av" aria-hidden="true">{initials(member.displayName)}</span>
               </div>
-              <button type="button" className="resetbtn" onClick={onSignOut}>Sign out</button>
             </div>
           </div>
-          <div className="mockline proto">Development · fictional test data from the database · stage changes are saved to the database only: nobody is notified and Manatal is not updated{workspace.devRecording ? " · test-run recording on" : ""}</div>
+          <div className="mockline proto">{workspace.modeLine ?? `Development · fictional test data from the database · stage changes are saved to the database only: nobody is notified and Manatal is not updated${workspace.devRecording ? " · test-run recording on" : ""}`}</div>
         </header>
-        <main className="page" id="page" tabIndex={-1}>
+        <main className={isCandidatesList(route) && !isTool ? "page pg-cands" : "page"} id="page" tabIndex={-1}>
           <WorkspacePage key={key} route={route} state={ws} onRetry={workspace.retry} today={today}
             moves={workspace.moves ? { ...workspace.moves, account: key } : NO_MOVES} memberId={member.id} />
         </main>
       </div>
-    </div>
+    </div></CandidatesContextScope.Provider>
   );
 }
