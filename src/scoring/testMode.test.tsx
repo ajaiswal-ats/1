@@ -146,8 +146,8 @@ describe("client preview", () => {
     expect(html).not.toMatch(/data-form=|id="mv"|>Decline<|Share interview feedback/);
     expect(html).not.toContain('aria-label="Next step"'); // no column reserved for an empty panel
     expect(html).toContain('class="cd cd-solo"');
-    expect(html).toContain("Added to local test 4 Jan");
-    expect(html).not.toMatch(/Shared 4 Jan|shared Candidate/);
+    expect(html).toContain("<dt>Added to local test</dt><dd>4 Jan</dd>");
+    expect(html).not.toMatch(/<dt>Shared<\/dt>|Shared 4 Jan|shared Candidate/);
   });
 });
 
@@ -193,7 +193,7 @@ describe("normal mode is unchanged", () => {
     expect(html).toContain('data-form="move"');
     expect(html).toContain('<div class="cd">');
     expect(html).toContain('aria-label="Next step"');
-    expect(html).toContain("Shared 4 Jan");
+    expect(html).toContain("<dt>Shared</dt><dd>4 Jan</dd>");
     expect(html).not.toMatch(/Draft assessment|Added to local test/);
     expect(render(ws, "roles", null)).toMatch(/<th class="rv-r">Shared<\/th>/);
     expect(render(ws, "role-role-syn", null)).toContain(">Shared with you<");

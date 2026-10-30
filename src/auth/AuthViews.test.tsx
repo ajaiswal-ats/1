@@ -16,13 +16,30 @@ const ready: AuthState = { status: "ready", user, member: { id: "m1", clientId: 
 const demoStrings = [CLIENT.note, CURRENT_USER.name, ...FIXTURE.subs.map((s) => s.name), ...FIXTURE.roles.map((r) => r.title)];
 
 describe("sign-in screen", () => {
-  it("has email and password, no registration or reset links", () => {
+  it("uses Sample 1's brand-and-form layout without demo credentials or a made-up client", () => {
+    const h = view({ status: "signed-out", pending: false, error: null, notice: null });
+    expect(h).toContain('aria-label="About this workspace"');
+    expect(h).toContain("Your hiring workspace with Revenue Optics");
+    expect(h).toContain("Review shared candidates, record decisions and follow hiring progress in one place.");
+    expect(h).toMatch(/id="auth-title"[^>]*>Sign in to your workspace<\/h1>/);
+    expect(h).toContain('aria-label="Show password"');
+    expect(h).toContain('aria-controls="auth-password"');
+    expect(h).not.toContain(CLIENT.name);
+    expect(h).not.toMatch(/Fill demo|Simulate a connection/);
+  });
+  it("offers help, an honest recovery explanation and an isolated demo, without registration", () => {
     const h = view({ status: "signed-out", pending: false, error: null, notice: null });
     expect(h).toContain('type="email"');
     expect(h).toContain('autoComplete="username"');
     expect(h).toContain('autoComplete="current-password"');
     expect(h).toContain(">Sign in</button>");
-    expect(h).not.toMatch(/sign up|create (an )?account|register|forgot/i);
+    expect(h).not.toMatch(/sign up|create (an )?account|register/i);
+    expect(h).toContain('aria-controls="auth-recovery-info"');
+    expect(h).toContain('aria-expanded="false"');
+    expect(h).toContain('>Forgot password?</button>');
+    expect(h).toContain('href="#help?topic=signin"');
+    expect(h).toContain('href="/demo.html#candidates" target="_blank" rel="noopener noreferrer"');
+    expect(h).toContain('>Explore demo</a>');
     expect(h).toContain("by invitation only");
   });
   it("shows errors and notices, and disables the form while signing in", () => {
@@ -30,7 +47,17 @@ describe("sign-in screen", () => {
     expect(view({ status: "signed-out", pending: false, error: null, notice: MESSAGES.signedOutOffline })).toContain('role="status"');
     const busy = view({ status: "signed-out", pending: true, error: null, notice: null });
     expect(busy).toContain("Signing in…");
-    expect(busy.match(/disabled=""/g)).toHaveLength(3);
+    expect(busy.match(/disabled=""/g)).toHaveLength(5);
+  });
+  it("allows signed-out access to sign-in guidance without any workspace or demo data", () => {
+    const h = view({ status: "signed-out", pending: false, error: null, notice: null }, "help");
+    expect(h).toContain('id="auth-title"');
+    expect(h).toContain('Sign-in help');
+    expect(h).toContain('Passwords and access tokens');
+    expect(h).toContain('>Back to sign in</a>');
+    expect(h).not.toContain('class="shell"');
+    expect(h).not.toContain('id="auth-password"');
+    expect(h).not.toContain(CLIENT.name);
   });
 });
 

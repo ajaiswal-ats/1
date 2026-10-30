@@ -223,15 +223,53 @@ const shot = async (pg, name, theme = "light") => { await pg.evaluate((t) => doc
 
 try {
   const A = await page();
-  ck("signed out: the sign-in screen is shown", await waitH1(A, "Sign in"));
+  ck("signed out: the sign-in screen is shown", await waitH1(A, "Sign in to your workspace"));
   ck("signed out: no workspace shell", (await A.$(".shell")) === null);
-  ck("signed out: no sign-up or password-reset link", !/sign up|create account|register|forgot/i.test(await body(A)));
+  ck("signed out: no registration or simulated reset submission", !/sign up|create account|register/i.test(await body(A)) && await A.getByRole("button", { name: "Forgot password?", exact: true }).count() === 1);
   await noDemo(A, "sign-in screen");
+  /* Presentation regression: keep credentials local while the password toggle changes only visibility. */
+  await A.fill("#auth-password", "fictional-visibility-check");
+  await A.getByRole("button", { name: "Show password", exact: true }).focus();
+  await A.keyboard.press("Space");
+  ck("password visibility: keyboard reveals the same value and keeps the control accessible", await A.$eval("#auth-password", e => e.type === "text" && e.value === "fictional-visibility-check")
+    && await A.getByRole("button", { name: "Hide password", exact: true }).getAttribute("aria-pressed") === "true");
+  await A.keyboard.press("Space");
+  ck("password visibility: keyboard masks it again without changing its value", await A.$eval("#auth-password", e => e.type === "password" && e.value === "fictional-visibility-check"));
+  await A.fill("#auth-password", "");
+  ck("sign-in presentation makes no authentication or database request", supabaseCalls.length === 0);
+  await A.getByRole("button", { name: "Forgot password?", exact: true }).focus();
+  await A.keyboard.press("Enter");
+  ck("recovery: keyboard opens honest guidance without sending an email or request", await A.locator("#auth-recovery-info").isVisible() && (await A.locator("#auth-recovery-info").innerText()).includes("No recovery email has been sent") && supabaseCalls.length === 0);
+  await A.keyboard.press("Enter");
+  ck("recovery: keyboard closes the explanation", !await A.locator("#auth-recovery-info").isVisible());
+  await A.getByRole("link", { name: "Sign-in help", exact: true }).click();
+  ck("signed-out help: public guidance, focused heading, no workspace or demo data", await waitH1(A, "Sign-in help") && await A.locator("#auth-title").evaluate(e => e === document.activeElement) && await A.locator(".shell").count() === 0 && supabaseCalls.length === 0);
+  await A.getByRole("link", { name: "Back to sign in", exact: true }).click();
+  await waitH1(A, "Sign in to your workspace");
+  const demoPopup = A.waitForEvent("popup");
+  await A.getByRole("link", { name: "Explore demo", exact: true }).click();
+  const demoPage = await demoPopup;
+  await waitH1(demoPage, "Candidates");
+  ck("Explore demo: separate fictional entry with no authentication request", new URL(demoPage.url()).pathname === "/demo.html" && (await body(demoPage)).includes("Mockup · fictional data") && (await body(demoPage)).includes("Harbor Industrial Supply") && supabaseCalls.length === 0);
+  ck("Explore demo: original app remains signed out and receives no demo actions or credentials", await waitH1(A, "Sign in to your workspace") && await A.inputValue("#auth-email") === "" && await A.inputValue("#auth-password") === "" && await A.locator(".shell").count() === 0);
+  await demoPage.close();
+  for (const width of [390, 899, 900, 1440]) for (const theme of ["light", "dark"]) {
+    await A.setViewportSize({ width, height: 900 });
+    await shot(A, `sign-in-${width}`, theme);
+    const layout = await A.evaluate(() => {
+      const art = document.querySelector(".auth-login-art"), form = document.querySelector(".auth-login-form"), inner = document.querySelector(".auth-login-inner");
+      return { overflow: document.documentElement.scrollWidth > innerWidth, art: getComputedStyle(art).display !== "none", artWidth: art.getBoundingClientRect().width, formWidth: form.getBoundingClientRect().width, innerWidth: inner.getBoundingClientRect().width, font: getComputedStyle(inner).fontFamily,
+        logo: [...document.querySelectorAll(".auth-login-logos img")].filter(e => getComputedStyle(e).display !== "none").map(e => e.className) };
+    });
+    ck(`sign-in ${width}px ${theme}: split, typography, theme logo and no overflow`, !layout.overflow && layout.font.includes("Satoshi") && layout.art === (width >= 900)
+      && (width < 900 ? layout.logo.join() === `auth-logo-${theme}` : Math.abs(layout.artWidth - layout.formWidth) < 1 && layout.innerWidth === Math.min(440, width / 2 - 64)));
+  }
+  await A.setViewportSize({ width: 1440, height: 900 });
   await shot(A, "sign-in"); await shot(A, "sign-in", "dark"); await A.evaluate(() => document.documentElement.setAttribute("data-theme", "light"));
 
   await signIn(A, "active@example.com", "wrong-password");
   await A.waitForSelector("#auth-error");
-  ck("wrong password: explained, still signed out", (await A.innerText("#auth-error")) === "The email or password is incorrect." && (await h1(A)) === "Sign in");
+  ck("wrong password: explained, still signed out", (await A.innerText("#auth-error")) === "The email or password is incorrect." && (await h1(A)) === "Sign in to your workspace");
   await shot(A, "sign-in-error");
 
   await signIn(A, "active@example.com");
@@ -279,7 +317,7 @@ try {
 
   /* Stage changes (made-up server). Riley Offline, Field Technician (open role), Interview v1 → Offer [provisional]. */
   const moveCalls = () => rpcCalls.length;
-  await A.selectOption("#mv", "Offer");
+  await A.locator(".other-stage-actions > summary").click(); await A.selectOption("#mv", "Offer");
   await A.click("[data-form=move]");
   ck("move form: Offer is marked provisional, and nothing claims a notification or Manatal update", (await A.innerText("#moveForm")).includes("Provisional for development testing") && (await A.innerText("#moveForm")).includes("nobody is notified and Manatal is not updated"));
   await shot(A, "move-form");
@@ -301,7 +339,7 @@ try {
 
   /* Conflict: Jordan Offline (To review v1). The form is opened, then the made-up server changes it (another user). */
   await A.evaluate(() => (location.hash = "#c-5a1a0000-0000-4000-8000-000000000014")); await waitH1(A, "Jordan Offline");
-  await A.selectOption("#mv", "Interview"); await A.click("[data-form=move]");
+  await A.click("[data-form=interview]");
   bump("c1", "5a1a0000-0000-4000-8000-000000000014", "Offer");
   n0 = moveCalls();
   await A.click("#moveForm button[type=submit]");
@@ -318,7 +356,7 @@ try {
   control.loseRpcAnswers = 2;
   const eventsBefore = WORKSPACES.c1.submission_events.length;
   n0 = moveCalls();
-  await A.selectOption("#mv", "To review"); await A.click("[data-form=move]"); await A.click("#moveForm button[type=submit]");
+  await A.locator(".other-stage-actions > summary").click(); await A.selectOption("#mv", "To review"); await A.click("[data-form=move]"); await A.click("#moveForm button[type=submit]");
   ck("no answer: an uncertain outcome, not a failure", await A.waitForFunction(() => document.querySelector(".act")?.textContent?.includes("could not be confirmed"), null, { timeout: 8000 }).then(() => true, () => false));
   await shot(A, "move-uncertain");
   await A.click("text=Check again");
@@ -330,9 +368,9 @@ try {
 
   /* Sign-out while saving: the late answer must not appear for anyone. */
   let releaseRpc; control.holdRpc = new Promise((r) => { releaseRpc = r; });
-  await A.selectOption("#mv", "Interview"); await A.click("[data-form=move]"); await A.click("#moveForm button[type=submit]");
+  await A.click("[data-form=interview]"); await A.click("#moveForm button[type=submit]");
   await waitText(A, ".act", "Saving the move");
-  await A.click("text=Sign out"); await waitH1(A, "Sign in");
+  await A.click("text=Sign out"); await waitH1(A, "Sign in to your workspace");
   releaseRpc(); control.holdRpc = null; await A.waitForTimeout(500);
   { const t = await body(A); ck("sign-out while saving: the late answer is ignored", !t.includes("Stage saved") && !t.includes("Jordan Offline")); }
   await signIn(A, "active@example.com"); await waitClient(A, "Offline Test Client");
@@ -391,7 +429,7 @@ try {
 
   const before = supabaseCalls.length;
   await A.click("text=Sign out");
-  ck("sign-out: back to the sign-in screen", await waitH1(A, "Sign in"));
+  ck("sign-out: back to the sign-in screen", await waitH1(A, "Sign in to your workspace"));
   ck("sign-out: workspace and client name are gone", (await A.$(".shell")) === null && !(await body(A)).includes("Offline Test Client"));
   { const t = await body(A); ck("sign-out: no workspace data left on the page", !FIRST_NAMES_C1.some((x) => t.includes(x)), FIRST_NAMES_C1.filter((x) => t.includes(x)).join(", ")); }
   ck("sign-out: the saved session is removed", await A.waitForFunction((k) => localStorage.getItem(k) === null, `sb-${REF}-auth-token`, { timeout: 5000 }).then(() => true, () => false));
@@ -401,7 +439,7 @@ try {
   ck("no active membership: the no-access state, no workspace", await waitH1(A, "No workspace access") && (await A.$(".shell")) === null);
   await noDemo(A, "no-access state");
   await shot(A, "no-access");
-  await A.click("text=Sign out"); await waitH1(A, "Sign in");
+  await A.click("text=Sign out"); await waitH1(A, "Sign in to your workspace");
 
   await signIn(A, "broken@example.com");
   ck("account load fails: an error state, no workspace and no demo data", await waitH1(A, "Workspace not loaded") && (await A.$(".shell")) === null);
@@ -415,7 +453,7 @@ try {
   await A.click("text=Try again");
   ck("retry: an empty workspace shows its empty state", await A.getByText("No roles yet.", { exact: true }).waitFor({ state: "visible", timeout: 5000 }).then(() => true, () => false)
     && await A.getByRole("table").count() === 0);
-  await A.click("text=Sign out"); await waitH1(A, "Sign in");
+  await A.click("text=Sign out"); await waitH1(A, "Sign in to your workspace");
 
   /* Account change in another tab of the same browser, while the first account's data is still loading (slow answer). */
   control.slowClient = "c1";
@@ -424,8 +462,8 @@ try {
   const B = await page();
   ck("second tab: restores the same session", await waitH1(B, "Candidates") && (await B.innerText(".client b")) === "Offline Test Client");
   await A.evaluate(() => { window.__switched = true; });
-  await B.click("text=Sign out"); await waitH1(B, "Sign in");
-  ck("other tab signed out: this tab drops the workspace too", await waitH1(A, "Sign in") && !(await body(A)).includes("Offline Test Client"));
+  await B.click("text=Sign out"); await waitH1(B, "Sign in to your workspace");
+  ck("other tab signed out: this tab drops the workspace too", await waitH1(A, "Sign in to your workspace") && !(await body(A)).includes("Offline Test Client"));
   await signIn(B, "second@example.com"); await waitH1(B, "Candidates");
   ck("other tab signed in as someone else: this tab shows only the new account", await waitClient(A, "Second Test Client") && !(await body(A)).includes("Offline Test Client"));
   ck("a member without a job title shows only the name", (await A.innerText(".me .who")).trim() === "Sam Second (test)");
@@ -437,7 +475,7 @@ try {
 
   /* Milestone 3 present: a published package on the Summary tab, the empty wording without one, and the role page. */
   control.m3 = true;
-  await A.click("text=Sign out"); await waitH1(A, "Sign in");
+  await A.click("text=Sign out"); await waitH1(A, "Sign in to your workspace");
   await signIn(A, "active@example.com"); await waitClient(A, "Offline Test Client");
   await A.evaluate(() => (location.hash = "#c-5a1a0000-0000-4000-8000-000000000011"));
   ck("milestone 3: the Summary tab shows the published package", await waitText(A, ".tabp", "Why Revenue Optics shared Riley.") && (await A.innerText(".tabp")).includes("Fictional reason for the offline check."));
@@ -445,13 +483,13 @@ try {
     const t = await A.innerText(".tabp");
     ck("milestone 3: requirement check on the agreed set, with statuses and evidence", t.includes("Requirements Version 1 · 1 Oct 2026") && t.includes("Field service experience") && t.includes("Supported") && t.includes("Not evidenced"));
     ck("milestone 3: sources are plain text; a row without a source shows none", (await A.$$eval(".tabp .src", (els) => els.map((e) => e.innerText))).join("|") === "Source: Interview 03:10" && (await A.$(".tabp .src button")) === null);
-    ck("milestone 3: strengths, points to clarify and key facts", t.includes("Fictional strength") && t.includes("None recorded.") && t.includes("2 weeks"));
+    ck("milestone 3: strengths, points to clarify and key facts", t.includes("Fictional strength") && t.includes("None recorded.") && (await A.innerText(".detail-facts")).includes("2 weeks"));
   }
   await shot(A, "m3-summary");
   /* Milestone 6: the Screening interview tab, client-safe text only, nothing playable. */
   await A.click("[data-tab=interview]");
   ck("milestone 6: the Screening interview tab shows the reviewed summary, notes for the client and key moments", await waitText(A, ".tabp", "Fictional screening summary for the offline check.")
-    && await A.evaluate(() => ["Screening interview with Revenue Optics", "25 minutes · Jamie Scott, Revenue Optics", "Fictional notes written for the client.", "About 4 min", "Fictional first topic", "About 15 min",
+    && await A.evaluate(() => ["Recruiter screening with Revenue Optics", "25 minutes · Jamie Scott, Revenue Optics", "Fictional notes written for the client.", "About 4 min", "Fictional first topic", "About 15 min",
       "No recording is shared in the portal."].every((x) => document.querySelector(".tabp").innerText.includes(x))));
   ck("milestone 6: nothing playable: no player, controls, seek buttons, links or media", await A.evaluate(() => !document.querySelector(".tabp button, .tabp a, .tabp video, .tabp audio, .tabp iframe, .tabp .player, .tabp .pctl, .tabp [role=slider]")));
   await shot(A, "m6-screening");
@@ -522,6 +560,11 @@ try {
   ck("no page errors", errors.length === 0, errors.join(" | "));
   ck("one Supabase client per tab (no duplicate GoTrueClient warning)", !consoleWarnings.some((w) => w.includes("Multiple GoTrueClient")), consoleWarnings.filter((w) => w.includes("GoTrueClient")).slice(0, 1).join(""));
   ck("no other console warnings or errors", consoleWarnings.filter((w) => !w.includes("Multiple GoTrueClient") && !w.includes("Failed to load resource")).length === 0, consoleWarnings.filter((w) => !w.includes("Failed to load resource")).slice(0, 3).join(" | "));
+} catch (error) {
+  console.error("Offline browser errors:", errors.join(" | "));
+  for(const page of ctx.pages())console.error("Offline failure screen:", (await page.locator("body").innerText()).slice(0,1200));
+  console.error("Offline browser console:", consoleWarnings.filter(w=>!w.includes("Failed to load resource")).join(" | "));
+  throw error;
 } finally {
   await browser.close();
   await server.close();

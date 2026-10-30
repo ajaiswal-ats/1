@@ -9,6 +9,14 @@ import path from "node:path";
 import { describe, expect, it } from "vitest";
 
 const ROOT = path.resolve(import.meta.dirname, "../..");
+it("the explicit public demo entry never imports authentication or local scoring services", () => {
+  const entry = path.join(ROOT, "src/demo.tsx");
+  expect(fs.existsSync(entry)).toBe(true);
+  const modules = [...graph(entry)].map(f => path.relative(ROOT, f));
+  expect(modules).toContain("src/App.tsx");
+  expect(modules.some(f => f.startsWith("src/auth/") || f.startsWith("src/scoring/"))).toBe(false);
+  expect(fs.readFileSync(path.join(ROOT, "demo.html"), "utf8")).toContain('/src/demo.tsx');
+});
 const resolve = (from, spec) => {
   const base = path.resolve(path.dirname(from), spec);
   return [base, `${base}.ts`, `${base}.tsx`, path.join(base, "index.ts")].find((f) => fs.existsSync(f) && fs.statSync(f).isFile()) ?? null;
@@ -44,9 +52,10 @@ describe("production isolation", () => {
   it("a production build refuses the scoring-test mode like any unknown mode", () => {
     expect(fs.readFileSync(path.join(ROOT, "src/auth/config.ts"), "utf8")).not.toMatch(/scoring/);
   });
-  it("the production build config has one entry and the private-paths guard, and does not mention scoring", () => {
+  it("the production build has only the portal and public demo entries, with private-path protection", () => {
     const cfg = fs.readFileSync(path.join(ROOT, "vite.config.ts"), "utf8");
-    expect(cfg).not.toMatch(/scoring|rollupOptions|input\s*:/);
+    expect(cfg).not.toMatch(/scoring/);
+    expect(cfg).toContain('input: ["index.html", "demo.html"]');
     expect(cfg).toMatch(/plugins: \[privatePathsGuard\(\),/);
     expect(fs.existsSync(path.join(ROOT, "scoring.html"))).toBe(false);
   });

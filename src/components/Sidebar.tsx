@@ -5,7 +5,7 @@ import { useData } from "../data/DataProvider";
 import { CLIENT } from "../data/fixtures";
 import { waitingOnYou } from "../domain/candidates";
 import type { NavKey } from "../lib/route";
-import { BriefIcon, ChartIcon, PeopleIcon } from "./icons";
+import { BriefIcon, ChartIcon, HelpIcon, PeopleIcon } from "./icons";
 
 export function Sidebar({ current }: { current: NavKey }) {
   const candidatesHref=useCandidatesHref();
@@ -26,6 +26,7 @@ export function Sidebar({ current }: { current: NavKey }) {
         <a href="#roles" {...here("roles")}><BriefIcon />Roles</a>
         <div className="grp">Reports</div>
         <a href="#progress" {...here("progress")}><ChartIcon />Hiring progress</a>
+          <div className="grp">Support</div><a href="#help" {...here("help")}><HelpIcon/>Help and support</a>
       </nav>
       <ShellActions current={current} demoExit />
     </aside>

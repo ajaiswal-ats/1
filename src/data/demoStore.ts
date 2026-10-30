@@ -47,3 +47,8 @@ export function saveAction(store: Store | undefined, base: Dataset, a: DemoActio
 
 /** The state after another tab saved: its latest saved list, keeping this tab's unsaved actions. */
 export const refresh = (store: Store | undefined, state: DemoState): DemoState => ({ stored: loadSaved(store) ?? state.stored, unsaved: state.unsaved });
+
+/** Reset only the fictional action log; never touch auth sessions or unrelated browser settings. */
+export function resetDemo(store:Store|undefined):boolean {
+  try {if(!store)return false;store.setItem(DEMO_KEY,'[]');return true;} catch{return false;}
+}

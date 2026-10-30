@@ -66,8 +66,8 @@ describe("candidate route", () => {
   const html = (id: string) => renderToStaticMarkup(<DataProvider><CandidatePage id={id} /></DataProvider>);
   it("a known submission opens its page on the Summary tab with its own actions", () => {
     const h = html("tb-isl");
-    expect(h).toContain("<h1>Taylor Brooks</h1>");
-    expect(h).toContain('aria-selected="true">Summary</button>');
+    expect(h).toContain('<h1 tabindex="-1">Taylor Brooks</h1>');
+    expect(h).toMatch(/role="tab"[^>]*aria-selected="true"[^>]*>Summary<\/button>/);
     expect(h).toContain("Move to Interview");
   });
   it("an unknown id says so, as 2h does", () => {

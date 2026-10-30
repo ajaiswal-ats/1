@@ -80,9 +80,9 @@ describe("Candidates (database)", () => {
   });
   it("a candidate page shows database fields; decline and feedback follow the provisional rules", () => {
     const h = page("c-s1");                                     // Interview, open role
-    expect(h).toContain("<h1>Jo Doe</h1>");
+    expect(h).toContain('<h1 tabindex="-1">Jo Doe</h1>');
     expect(h).toContain("for <a href=\"#role-r1\">Warehouse Lead</a>");
-    expect(h).toContain("<span>Shared 8 Oct</span>");
+    expect(h).toContain("<dt>Shared</dt><dd>8 Oct</dd>");
     expect(h).toMatch(/<button type="button" class="btn btn-d" data-form="decline">Decline<\/button>/);
     expect(h).toMatch(/<button type="button" class="btn btn-s" data-form="feedback">Share interview feedback<\/button>/);
     expect(h).toContain("Manatal is not updated");

@@ -1,7 +1,9 @@
 import { CandidatesContextScope, useCandidatesHref } from "../lib/candidatesRoute";
-import { useState, type FormEvent, type ReactNode } from "react";
+import { useEffect, useState, type FormEvent, type ReactNode } from "react";
+import { HELP_TOPICS } from "../help/HelpPage";
 import logo from "../assets/revenue-optics-logo.png";
-import { BriefIcon, ChartIcon, PeopleIcon } from "../components/icons";
+import colourLogo from "../assets/revenue-optics-logo-colour.png";
+import { BriefIcon, ChartIcon, HelpIcon, PeopleIcon, EyeIcon } from "../components/icons";
 import { ShellActions } from "../components/ShellActions";
 import { isCandidatesList, navFor, type NavKey } from "../lib/route";
 import { NavScrim, TopBarStart, useNavDrawer } from "../components/NavDrawer";
@@ -31,7 +33,22 @@ const NO_WORKSPACE: WorkspaceProps = { state: { status: "idle" }, retry: () => {
 
 const DEV_NOTE = "Development · fictional test accounts only · access is by invitation";
 
-function Card({ title, children, label }: { title: string; children: ReactNode; label?: string }) {
+function Card({ title, children, label, login = false }: { title: string; children: ReactNode; label?: string; login?: boolean }) {
+  if (login) return (
+    <main className="auth auth-login">
+      <aside className="auth-login-art" aria-label="About this workspace">
+        <img src={logo} alt="Revenue Optics" width="180" />
+        <div><p className="auth-login-tag">Your hiring workspace with Revenue Optics</p><p>Review shared candidates, record decisions and follow hiring progress in one place.</p></div>
+      </aside>
+      <section className="auth-login-form" aria-labelledby="auth-title">
+        <div className="auth-login-inner">
+          <div className="auth-login-logos"><img className="auth-logo-light" src={colourLogo} alt="Revenue Optics" width="140" /><img className="auth-logo-dark" src={logo} alt="Revenue Optics" width="140" /></div>
+          <h1 id="auth-title" tabIndex={-1}>{title}</h1>
+          {children}
+        </div>
+      </section>
+    </main>
+  );
   return (
     <div className="auth">
       <section className="auth-card" aria-labelledby="auth-title">
@@ -49,10 +66,13 @@ function Card({ title, children, label }: { title: string; children: ReactNode; 
 
 export function SignIn({ pending, error, notice, onSignIn }: { pending: boolean; error: string | null; notice: string | null; onSignIn: AuthActions["signIn"] }) {
   const [email, setEmail] = useState(""), [password, setPassword] = useState("");
+  const [showPassword, setShowPassword] = useState(false);
+  const [recoveryOpen, setRecoveryOpen] = useState(false);
   const submit = (e: FormEvent) => { e.preventDefault(); onSignIn(email, password); };
   return (
-    <Card title="Sign in" label="Client workspace">
+    <Card title="Sign in to your workspace" login>
       <p className="auth-lede">Use the email address your Revenue Optics recruiter invited.</p>
+      <p className="auth-login-note">{DEV_NOTE}</p>
       {notice && <p className="auth-msg info" role="status">{notice}</p>}
       {error && <p className="auth-msg crit" role="alert" id="auth-error">{error}</p>}
       <form onSubmit={submit} noValidate>
@@ -63,11 +83,20 @@ export function SignIn({ pending, error, notice, onSignIn }: { pending: boolean;
         </div>
         <div className="auth-field">
           <label htmlFor="auth-password">Password</label>
-          <input id="auth-password" name="password" type="password" autoComplete="current-password" required value={password} disabled={pending}
-            aria-describedby={error ? "auth-error" : undefined} onChange={(e) => setPassword(e.target.value)} />
+          <div className="auth-password-wrap">
+            <input id="auth-password" name="password" type={showPassword && !pending ? "text" : "password"} autoComplete="current-password" required value={password} disabled={pending}
+              aria-describedby={error ? "auth-error" : undefined} onChange={(e) => setPassword(e.target.value)} />
+            <button type="button" className="auth-password-toggle" aria-label={showPassword ? "Hide password" : "Show password"} aria-controls="auth-password" aria-pressed={showPassword} disabled={pending} onClick={() => setShowPassword(!showPassword)}><EyeIcon hidden={showPassword} /></button>
+          </div>
         </div>
+        <div className="auth-recovery"><button type="button" className="auth-link" disabled={pending} aria-expanded={recoveryOpen} aria-controls="auth-recovery-info" onClick={() => setRecoveryOpen(!recoveryOpen)}>Forgot password?</button></div>
+        <p id="auth-recovery-info" className="auth-login-note" role="status" hidden={!recoveryOpen}>Password recovery is not connected yet. No recovery email has been sent. Follow the access instructions in your invitation or contact your Revenue Optics recruiter through your existing channel.</p>
         <button type="submit" className="btn btn-p auth-submit" disabled={pending}>{pending ? "Signing in…" : "Sign in"}</button>
       </form>
+      <div className="auth-or">or</div>
+      <a className="auth-demo" href="/demo.html#candidates" target="_blank" rel="noopener noreferrer" aria-describedby="auth-demo-note">Explore demo</a>
+      <span className="sr" id="auth-demo-note">Opens a separate fictional demo. Your workspace session is unchanged.</span>
+      <p className="auth-help"><a href="#help?topic=signin">Sign-in help</a></p>
       <p className="auth-foot">Access is by invitation only. If you cannot sign in, contact your Revenue Optics recruiter.</p>
     </Card>
   );
@@ -75,12 +104,18 @@ export function SignIn({ pending, error, notice, onSignIn }: { pending: boolean;
 
 const SignedInAs = ({ user }: { user: SessionUser }) => <p className="auth-who">Signed in as <b>{user.email || "this account"}</b></p>;
 
+function SignInHelp() {
+  useEffect(() => { document.getElementById("auth-title")?.focus(); }, []);
+  const topic = HELP_TOPICS.find(t => t.id === "signin")!;
+  return <Card title="Sign-in help" login><div className="auth-public-help">{topic.body.map(p => <p key={p}>{p}</p>)}<p>Passwords and access tokens should never be shared.</p></div><a className="auth-demo" href="#candidates">Back to sign in</a></Card>;
+}
+
 export function AuthView({ state, route, actions, workspace = NO_WORKSPACE }: { state: AuthState; route: string; actions: AuthActions; workspace?: WorkspaceProps }) {
   switch (state.status) {
     case "restoring":
       return <Card title="Restoring your session…"><p className="auth-lede" role="status">Checking this browser for a saved sign-in.</p></Card>;
     case "signed-out":
-      return <SignIn pending={state.pending} error={state.error} notice={state.notice} onSignIn={actions.signIn} />;
+      return route === "help" ? <SignInHelp /> : <SignIn pending={state.pending} error={state.error} notice={state.notice} onSignIn={actions.signIn} />;
     case "loading":
       return (
         <Card title="Loading your workspace…">
@@ -146,6 +181,7 @@ function Workspace({ route, user, member, client, onSignOut, workspace }: { rout
           <a href="#roles" {...here("roles")}><BriefIcon />Roles</a>
           <div className="grp">Reports</div>
           <a href="#progress" {...here("progress")}><ChartIcon />Hiring progress</a>
+          <div className="grp">Support</div><a href="#help" {...here("help")}><HelpIcon/>Help and support</a>
           {tools.length > 0 && <><div className="grp">Recruiter tools</div>{tools.map((t) => <a key={t.route} href={`#${t.route}`} {...(route === t.route ? { "aria-current": "page" as const } : {})}><BriefIcon />{t.label}</a>)}</>}
         </nav>
         <ShellActions current={current} onSignOut={workspace.noSignOut ? undefined : onSignOut} />
@@ -165,7 +201,7 @@ function Workspace({ route, user, member, client, onSignOut, workspace }: { rout
           </div>
           <div className="mockline proto">{workspace.modeLine ?? `Development · fictional test data from the database · stage changes are saved to the database only: nobody is notified and Manatal is not updated${workspace.devRecording ? " · test-run recording on" : ""}`}</div>
         </header>
-        <main className={isCandidatesList(route) && !isTool ? "page pg-cands" : "page"} id="page" tabIndex={-1}>
+        <main className={isCandidatesList(route) && !isTool ? "page pg-cands" : route.startsWith("c-") ? "page pg-detail" : "page"} id="page" tabIndex={-1}>
           <WorkspacePage key={key} route={route} state={ws} onRetry={workspace.retry} today={today}
             moves={workspace.moves ? { ...workspace.moves, account: key } : NO_MOVES} memberId={member.id} />
         </main>

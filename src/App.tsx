@@ -21,7 +21,7 @@ export function App() {
         <NavScrim drawer={drawer} />
         <div className="main">
           <TopBar drawer={drawer} />
-          <main className={isCandidatesList(route) ? "page pg-cands" : "page"} id="page" tabIndex={-1}>
+          <main className={isCandidatesList(route) ? "page pg-cands" : route.startsWith("c-") ? "page pg-detail" : "page"} id="page" tabIndex={-1}>
             {route==="help" ? <DemoHelp /> : route.startsWith("c-") ? <CandidatePage key={route} id={route.slice(2)} />
               : current === "progress" ? <HiringProgress />
               : route.startsWith("role-") ? <RolePage id={route.slice(5)} />

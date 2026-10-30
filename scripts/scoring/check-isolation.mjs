@@ -21,7 +21,7 @@ const dist = walk(path.join(ROOT, "dist"));
 const markers = ["__scoring", "scoring-test", "src/scoring", "Local scoring test", "Experimental — not validated", "scoring-test-reviewer-corrections", "Insufficient evidence — no score", "testMode", "Client preview", "Internal review", "Added to local test", "recruiter review pending", "No notes in this test assessment", "pdftool", "extraction-record", "rule-based best-effort blinding"];
 const distHits = dist.filter((f) => { const t = fs.readFileSync(f, "latin1"); return markers.some((m) => t.includes(m)); });
 distHits.length ? fail(`${distHits.length} build file(s) contain scoring-test code or endpoints`) : pass(`no scoring-test code, page or endpoint in ${dist.length} build files`);
-fs.readdirSync(path.join(ROOT, "dist")).some((f) => f.endsWith(".html") && f !== "index.html") ? fail("dist has an extra HTML entry") : pass("dist has only the portal entry (index.html)");
+fs.readdirSync(path.join(ROOT, "dist")).some((f) => f.endsWith(".html") && !["index.html", "demo.html"].includes(f)) ? fail("dist has an unexpected HTML entry") : pass("dist has only the portal and explicit fictional demo entries");
 
 /* 2. Private content, from the private folder. */
 if (!fs.existsSync(PRIV)) { console.log("SKIP private-content checks: the private scoring folder is not on this computer"); process.exit(bad ? 1 : 0); }

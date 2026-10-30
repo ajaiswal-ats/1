@@ -31,7 +31,7 @@ describe("compatibility: without milestone 6, with it but no rows, and seeded", 
     const ws = await (await signIn(await createProject()))();
     expect(ws.screening).toBeNull();
     const h = renderToStaticMarkup(createElement(WorkspacePage, { route: `c-${H("tb-isl")}`, state: { status: "ready", key: "k", ws }, onRetry() {}, today: "2026-10-12" }));
-    expect(h).toContain("Screening interview");
+    expect(h).toContain("Recruiter screening");
   });
   it("milestone 6 without rows: every candidate says no screening interview has been shared", async () => {
     const ws = await (await signIn(await createProject({ m6: true, m6Seed: false })))();
@@ -52,10 +52,10 @@ describe("the tab: the demo's reviewed text, no player, no seeking, no recording
     const ws = await (await signIn(await createProject({ m6: true })))();
     for (const s of FIXTURE.subs.filter((x) => x.iv)) {
       const t = text(tab(ws, s.id)), v = s.iv;
-      expect(t, s.id).toContain(`Screening interview with Revenue Optics ${fd(v.date)} 2026 · ${v.dur} minutes · ${v.by}, Revenue Optics`);
+      expect(t, s.id).toContain(`Recruiter screening with Revenue Optics ${fd(v.date)} 2026 · ${v.dur} minutes · ${v.by}, Revenue Optics`);
       for (const [m, label] of v.moments) expect(t, s.id).toContain(`About ${m} min ${label}`);
-      expect(t, s.id).toContain(`Short summary ${v.summary}`);
-      expect(t, s.id).toContain(`Recruiter notes ${v.notes} ${v.by}, Revenue Optics`);
+      expect(t, s.id).toContain(`Screening summary ${v.summary}`);
+      expect(t, s.id).toContain(`Recruiter observations ${v.notes} ${v.by}, Revenue Optics`);
     }
   });
   it("nothing playable: no player, controls, seek buttons, timestamps, links or transcript", async () => {
@@ -76,8 +76,9 @@ describe("the tab: the demo's reviewed text, no player, no seeking, no recording
       select client_id, id, requirement_set_id, '2026-09-20', 20, 'Fictional Recruiter', 'Fictional summary.' from public.submission_packages where id = md5('t:pkg')::uuid;
       select app_private.publish_package(md5('t:pkg')::uuid);`);
     const t = text(tab(await (await signIn(p))(), "bc-pa"));
-    expect(t).toContain("Recruiter notes None shared.");
-    expect(t).toContain("Key moments Topics Revenue Optics noted, at about the minute they came up. No recording is shared in the portal. None noted.");
+    expect(t).toContain("Recruiter observations None shared.");
+    expect(t).toContain("Example discussion topics Topics Revenue Optics noted, at about the minute they came up. None noted.");
+    expect(t).toContain("No recording is shared in the portal.");
   });
 });
 

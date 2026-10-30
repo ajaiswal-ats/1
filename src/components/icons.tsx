@@ -1,5 +1,6 @@
 /* Icons from 2h's ICON set. */
 const svg = { viewBox: "0 0 24 24", fill: "none", stroke: "currentColor", strokeWidth: 2, "aria-hidden": true } as const;
+export const EyeIcon = ({ hidden = false }: { hidden?: boolean }) => <svg {...svg}><path d="M2 12s3.5-7 10-7 10 7 10 7-3.5 7-10 7S2 12 2 12Z" /><circle cx="12" cy="12" r="3" />{hidden && <path d="m3 3 18 18" />}</svg>;
 
 export const PeopleIcon = () => (
   <svg {...svg}><circle cx="9" cy="8" r="3.5" /><path d="M2.5 20c.8-3.5 3.4-5.5 6.5-5.5s5.7 2 6.5 5.5" /><circle cx="17.5" cy="9" r="2.5" /><path d="M17 14.5c2.4.2 4 1.8 4.5 4.5" /></svg>
@@ -37,3 +38,6 @@ export const HelpIcon = () => <svg {...svg}><circle cx="12" cy="12" r="9"/><path
 
 export const GripIcon = () => <svg {...svg}>{[6,12,18].flatMap(y=>[9,15].map(x=><circle key={`${x}-${y}`} cx={x} cy={y} r="1.2"/>))}</svg>;
 export const MoreIcon = () => <svg {...svg}>{[5,12,19].map(x=><circle key={x} cx={x} cy="12" r="1.3"/>)}</svg>;
+
+export const ResetIcon = () => <svg {...svg}><path d="M3 11a9 9 0 1 1 2 7M3 3v8h8"/></svg>;
+export const InfoIcon = () => <svg {...svg}><circle cx="12" cy="12" r="9"/><path d="M12 11v6M12 7v.5"/></svg>;

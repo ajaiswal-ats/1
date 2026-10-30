@@ -9,6 +9,7 @@ export default defineConfig({
      privatePathsGuard: the dev server refuses private and non-app files (docs/, supabase/, documents, .env…); see the plugin. */
   plugins: [privatePathsGuard(), react(), moveRecorder()],
   server: { host: "127.0.0.1", port: 5173, strictPort: true },
+  build: { rollupOptions: { input: ["index.html", "demo.html"] } },
   /* Unit tests, including the database scripts' logic; the hosted database tests in tests/db run separately (vitest.db.config.mjs). */
   test: { include: ["src/**/*.test.{ts,tsx}", "scripts/**/*.test.mjs"] },
 });

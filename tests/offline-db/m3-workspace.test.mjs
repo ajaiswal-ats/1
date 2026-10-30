@@ -85,17 +85,17 @@ describe("parity with the demo's pages (same fictional content; sources as plain
     for (const s of visible) {
       const demo = renderToStaticMarkup(createElement(DataProvider, null, createElement(CandidatePage, { id: s.id })));
       const db = page(ws, `c-${sub(s.id)}`);
-      expect(text(between(db, 'role="tabpanel">', "<aside")), s.id).toBe(text(between(demo, 'role="tabpanel">', "<aside")));
+      expect(text(between(db, 'aria-labelledby="detail-tab-summary" tabindex="0">', "</div></section></div></div>")), s.id).toBe(text(between(demo, 'aria-labelledby="detail-tab-summary" tabindex="0">', "</div></section></div></div>")));
     }
   });
   it("sources are plain text, and a row without a source shows none", async () => {
     const ws = await load(await createProject());
-    const h = page(ws, `c-${sub("tb-isl")}`), panel = between(h, 'role="tabpanel">', "<aside");
+    const h = page(ws, `c-${sub("tb-isl")}`), panel = between(h, 'aria-labelledby="detail-tab-summary" tabindex="0">', "</div></section></div></div>");
     expect(panel).not.toContain("<button");
     expect(panel).toContain('<div class="src">Source: Interview 14:05</div>');
     const pkg = ws.content.packages.get(sub("so-pa")), withSource = [...pkg.evidence.values()].filter((e) => e.source).length;
     expect([...pkg.evidence.values()].some((e) => e.source === null)).toBe(true);
-    expect(between(page(ws, `c-${sub("so-pa")}`), 'role="tabpanel">', "<aside").split('class="src"').length - 1).toBe(withSource);
+    expect(between(page(ws, `c-${sub("so-pa")}`), 'aria-labelledby="detail-tab-summary" tabindex="0">', "</div></section></div></div>").split('class="src"').length - 1).toBe(withSource);
   });
   it("each role page has the demo's hold note, summary, responsibilities, job description and requirements", async () => {
     const ws = await load(await createProject());

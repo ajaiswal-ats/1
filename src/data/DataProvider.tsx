@@ -1,6 +1,6 @@
 import { createContext, useContext, useEffect, useMemo, useState, type ReactNode } from "react";
 import { replay, type DemoAction } from "../domain/actions";
-import { DEMO_KEY, loadSaved, refresh, saveAction, shown, type DemoState } from "./demoStore";
+import { DEMO_KEY, loadSaved, refresh, resetDemo, saveAction, shown, type DemoState } from "./demoStore";
 import { FIXTURE, type Dataset } from "./fixtures";
 
 export { DEMO_KEY } from "./demoStore";
@@ -11,8 +11,8 @@ export { DEMO_KEY } from "./demoStore";
    Nothing is sent anywhere. */
 const storage = () => { try { return globalThis.localStorage; } catch { return undefined; } };
 
-interface DataContextValue { data: Dataset; act: (a: DemoAction) => boolean }
-const DataContext = createContext<DataContextValue>({ data: FIXTURE, act: () => false });
+interface DataContextValue { data: Dataset; act: (a: DemoAction) => boolean; reset:()=>boolean }
+const DataContext = createContext<DataContextValue>({ data: FIXTURE, act: () => false, reset:()=>false });
 
 export function DataProvider({ data: base = FIXTURE, children }: { data?: Dataset; children: ReactNode }) {
   const [state, setState] = useState<DemoState>(() => ({ stored: loadSaved(storage()) ?? [], unsaved: [] }));
@@ -32,8 +32,10 @@ export function DataProvider({ data: base = FIXTURE, children }: { data?: Datase
     setState(r.state);
     return r.saved;
   };
-  return <DataContext.Provider value={{ data, act }}>{children}</DataContext.Provider>;
+  return <DataContext.Provider value={{ data, act, reset:()=>{if(!resetDemo(storage()))return false;setState({stored:[],unsaved:[]});return true;} }}>{children}</DataContext.Provider>;
 }
 
 export const useData = () => useContext(DataContext).data;
 export const useAct = () => useContext(DataContext).act;
+
+export const useResetDemo = () => useContext(DataContext).reset;

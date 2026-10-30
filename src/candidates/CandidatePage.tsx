@@ -1,23 +1,25 @@
+import {InfoIcon} from "../components/icons";
+import {RequirementGroups} from "./RequirementGroups";
 import {readBoardAction} from "./boardActions";
 import { useCandidatesHref, useCandidateReturn } from "../lib/candidatesRoute";
-import { Fragment, useEffect, useRef, useState, type FormEvent, type ReactNode } from "react";
-import { PinIcon } from "../components/icons";
+import { useEffect, useRef, useState, type FormEvent, type ReactNode } from "react";
+import {CandidateDetailFrame,RecruiterScreening} from "./CandidateDetailFrame";
+import {useDetailLocation} from "./detailNavigation";
+import {demoCandidateRows} from "./Candidates";
 import { useToast } from "../components/Toast";
 import { useAct, useData } from "../data/DataProvider";
 import { CURRENT_USER, TODAY, type ReqStatus, type Stage, type Submission } from "../data/fixtures";
 import { DECLINE_CATEGORIES, permitted, savedHeading, savedToast, validationError, type DemoAction } from "../domain/actions";
-import { STAGES, initials, interviewLabel, nextStep, otherSubmissions, roleOf } from "../domain/candidates";
+import { nextStep, otherSubmissions, roleOf } from "../domain/candidates";
 import { fd } from "../lib/dates";
 
 /* Candidate page for one submission (2h vCand): header, four tabs, and the Next step panel with the client's actions.
    Actions change only this submission and are saved in this browser; nothing is sent. */
 
-const TABS = [["summary", "Summary"], ["interview", "Screening interview"], ["resume", "Resume"], ["notes", "Notes and history"]] as const;
-type Tab = (typeof TABS)[number][0];
 const REQ_ST: Record<ReqStatus, [string, string]> = { sup: ["Supported", "c-ok"], part: ["Partly supported", "c-info"], none: ["Not evidenced", "c-mute"], notmet: ["Confirmed not met", "c-warn"] };
 const first = (name: string) => name.split(" ")[0];
 const mmss = (sec: number) => { const n = Math.max(0, Math.round(sec || 0)); return `${String(Math.floor(n / 60)).padStart(2, "0")}:${String(n % 60).padStart(2, "0")}`; };
-const toSec = (t: string) => { const [m, x] = t.split(":").map(Number); return (m || 0) * 60 + (x || 0); };
+
 
 /** An open form: a stage move (to a stage), a decline, or interview feedback. */
 type Form = { kind: "move"; to: Exclude<Stage, "Declined"> } | { kind: "decline" } | { kind: "feedback" };
@@ -26,110 +28,53 @@ export function CandidatePage({ id }: { id: string }) {
   const candidatesHref=useCandidatesHref();
   const back=useCandidateReturn();
   const data = useData(), c = data.subs.find((s) => s.id === id);
-  const [tab, setTab] = useState<Tab>("summary"), [pos, setPos] = useState(0);
+  const {tab,setTab,from}=useDetailLocation();
   const [form, setForm] = useState<Form | null>(()=>{if(!c||typeof location==='undefined')return null;const p=permitted(data,c);return readBoardAction(location.hash,p.moveTo,p.decline);}), [saved, setSaved] = useState<string | null>(null);
   if (!c) return <p>Candidate not found. <a href={candidatesHref}>Back to Candidates</a></p>;
 
-  const role = roleOf(data, c), others = otherSubmissions(data, c), t = nextStep(c, TODAY), [, iv] = interviewLabel(c), si = STAGES.indexOf(c.stage);
+  const role = roleOf(data, c), others = otherSubmissions(data, c), t = nextStep(c, TODAY), rows=demoCandidateRows(data,TODAY), row=rows.find(r=>r.id===c.id)!;
   const outcome = c.outcome ? `${c.outcome.status} · recorded by Revenue Optics ${fd(c.outcome.d)}` : c.stage === "Offer" || c.stage === "Hired" ? "Not recorded yet" : null;
-  const seek = (s: string) => { setPos(toSec(s)); setTab("interview"); };
+  const seek = () => setTab("interview");
   /* "Source: …" line under the evidence. Interview times and Resume open that tab; other sources are plain text. */
-  const src = (s: string) => s.startsWith("Interview") ? <>Source: <button type="button" className="btn-link" data-seek={s.split(" ")[1]} onClick={() => seek(s.split(" ")[1])}>{s}</button></>
+  const src = (s: string) => s.startsWith("Interview") ? <>Source: <button type="button" className="btn-link" data-seek={s.split(" ")[1]} onClick={() => seek()}>{s}</button></>
     : s === "Resume" ? <>Source: <button type="button" className="btn-link" data-tab="resume" onClick={() => setTab("resume")}>Resume</button></> : `Source: ${s}`;
 
   return (
-    <>
-      <nav className="crumb" aria-label="Breadcrumb"><a href={back.href}>← {back.label}</a><span className="muted">/</span><a href={`#role-${role.id}`}>{role.title}</a></nav>
-      <div className="cd">
-        <div className="card" style={{ minWidth: 0 }}>
-          <div className="chead">
-            <div className="chead-top"><span className="av">{initials(c.name)}</span><div style={{ minWidth: 0 }}><h1>{c.name}</h1>
-              <div className="for">for <a href={`#role-${role.id}`}>{role.title}</a></div>
-              <div className="facts"><span>{c.head}</span><span><PinIcon />{` ${c.loc}`}</span><span>{`Shared ${fd(c.shared)}`}</span></div></div></div>
-            {others.length > 0 && <div className="also">Also shared for {others.map((o, i) => <Fragment key={o.id}>{i > 0 && ", "}<a href={`#c-${o.id}`}>{roleOf(data, o).title}</a>{` (${o.stage})`}</Fragment>)}</div>}
-            {c.stage === "Declined"
-              ? <p className="small" style={{ margin: "14px 0 0" }}><span className="chip c-mute">{`Declined ${c.declineNote ? fd(c.declineNote.date) : ""}`}</span></p>
-              : <ol className="steps" aria-label="Stage">{STAGES.map((s, i) => <li key={s} className={i < si ? "done" : i === si ? "cur" : ""} aria-current={i === si ? "step" : undefined}>{s}</li>)}</ol>}
-          </div>
-          <div className="tabs" role="tablist">
-            {TABS.map(([k, l]) => <button key={k} type="button" role="tab" data-tab={k} aria-selected={tab === k} onClick={() => setTab(k)}>{l}</button>)}
-          </div>
-          <div className="tabp" role="tabpanel">
-            {tab === "summary" ? <Summary c={c} src={src} /> : tab === "interview" ? <Interview c={c} pos={pos} onSeek={seek} /> : tab === "resume" ? <Resume c={c} /> : <Notes c={c} />}
-          </div>
-        </div>
+    <CandidateDetailFrame id={c.id} name={c.name} headline={c.head} location={c.loc} stage={c.stage} declinedDate={c.declineNote?.date} shared={c.shared}
+      facts={Object.entries(c.facts).map(([label,value])=>({label,value}))} role={{...role,location:role.loc}} others={others.map(o=>({id:o.id,title:roleOf(data,o).title,stage:o.stage}))}
+      rows={rows} roles={data.roles} today={TODAY} back={back} from={from} tab={tab} setTab={setTab} rail={
         <aside className="card act" aria-label="Next step"><div className="pad">
           <h2>Next step</h2>
           <div className={`nextbox ${t.cls}`}><b>{t.long}</b>{t.sub && <span className="small">{t.sub}</span>}</div>
-          <dl className="statusdl"><dt>Stage</dt><dd>{c.stage}</dd><dt>Interview</dt><dd>{iv}</dd>{outcome && <><dt>Offer status</dt><dd>{outcome}</dd></>}<dt>Recruiter</dt><dd>{`${role.contact}, Revenue Optics`}</dd></dl>
+          <dl className="statusdl"><dt>Stage</dt><dd>{c.stage}</dd><dt>Recruiter screening</dt><dd>{c.iv?`Held ${fd(c.iv.date)} by ${c.iv.by}`:row.screening}</dd><dt>Client interview</dt><dd>{row.interview}</dd>{outcome && <><dt>Offer status</dt><dd>{outcome}</dd></>}<dt>Recruiter</dt><dd>{`${role.contact}, Revenue Optics`}</dd></dl>
           <Actions c={c} form={form} saved={saved} onOpen={setForm} onDone={(a) => { setForm(null); setSaved(savedHeading(a)); }} />
-          <p className="mock">Mockup: actions are saved only in this browser. Nothing is sent to your recruiter.</p>
-        </div></aside>
-      </div>
-    </>
+          <p className="mock"><InfoIcon/><span>Mockup: actions are saved only in this browser. Nothing is sent to your recruiter.</span></p>
+        </div></aside>}>
+      {tab === "summary" ? <Summary c={c} src={src} /> : tab === "interview" ? <Interview c={c} /> : tab === "resume" ? <Resume c={c} /> : <Notes c={c} />}
+    </CandidateDetailFrame>
   );
 }
 
 function Summary({ c, src }: { c: Submission; src: (s: string) => ReactNode }) {
-  const role = roleOf(useData(), c), counts = (Object.keys(REQ_ST) as ReqStatus[]).map((k) => [k, c.req.filter((x) => x[0] === k).length] as const).filter(([, n]) => n);
+  const role = roleOf(useData(), c);
   return (
     <>
       <p className="why"><b>{`Why Revenue Optics shared ${first(c.name)}.`}</b>{` ${c.why}`}</p>
-      <div className="sec-h"><h2>Requirement check</h2><span className="xs muted">{`Requirements ${role.reqVer}`}</span></div>
-      <div className="reqsum">{counts.map(([k, n]) => <span key={k} className={`chip ${REQ_ST[k][1]}`}>{`${n} ${REQ_ST[k][0].toLowerCase()}`}</span>)}</div>
-      <table className="req"><thead><tr><th>Requirement</th><th>Status</th><th>Evidence</th></tr></thead><tbody>
-        {role.req.map((q, i) => {
-          const e = c.req[i] || (["none", "Not mentioned.", ""] as const);
-          return (
-            <tr key={i}>
-              <td className="rq">{q[0]}<span className="tier">{q[1] === "must" ? "Must-have" : "Preferred"}</span></td>
-              <td className="st"><span className={`chip ${REQ_ST[e[0]][1]}`}>{REQ_ST[e[0]][0]}</span></td>
-              <td className="ev">{e[1]}{e[2] && <div className="src">{src(e[2])}</div>}</td>
-            </tr>
-          );
-        })}
-      </tbody></table>
       <div className="two">
         <div className="box"><h3>Strengths</h3>{c.strengths.length ? <ul>{c.strengths.map((x) => <li key={x}>{x}</li>)}</ul> : <p className="muted small">None recorded.</p>}</div>
         <div className="box"><h3>Points to clarify</h3>{c.clarify.length ? <ul>{c.clarify.map((x) => <li key={x}>{x}</li>)}</ul> : <p className="muted small">None recorded.</p>}</div>
       </div>
-      <div className="box" style={{ marginTop: 16 }}><h3 style={{ marginBottom: 8 }}>Key facts</h3>
-        <dl className="kf">{Object.keys(c.facts).length ? Object.entries(c.facts).map(([k, v]) => <Fragment key={k}><dt>{k}</dt><dd>{v}</dd></Fragment>) : <dd className="muted">None recorded.</dd>}</dl>
-      </div>
+      <div className="sec-h requirement-heading"><h2>Requirement check</h2><span className="xs muted">{`Requirements ${role.reqVer}`}</span></div>
+      <RequirementGroups rows={role.req.map((q,i)=>{const e=c.req[i]??(['none','Not mentioned.',''] as const);return {id:String(i),tier:q[1]==='must'?'must':'preferred',text:q[0],status:REQ_ST[e[0]][0],statusClass:REQ_ST[e[0]][1],evidence:e[1],source:e[2]?src(e[2]):undefined};})}/>
+
     </>
   );
 }
 
-function Interview({ c, pos, onSeek }: { c: Submission; pos: number; onSeek: (s: string) => void }) {
-  const toast = useToast();
-  if (!c.iv) return <p className="muted">No screening interview has been shared for this candidate.</p>;
-  const v = c.iv, durS = v.dur * 60, pct = Math.min(100, (pos / durS) * 100);
-  return (
-    <>
-      <div className="sec-h"><h2>Screening interview with Revenue Optics</h2></div>
-      <p className="small muted" style={{ margin: "-6px 0 14px" }}>{`${fd(v.date)} 2026 · ${v.dur} minutes · ${v.by}, Revenue Optics`}</p>
-      <div className="ivgrid">
-        <div>
-          <div className="player"><div><b>Recording would play here, on this page</b>Visual simulation: no recording is loaded. The source (Fireflies or an upload by Revenue Optics) is not connected.</div></div>
-          <div className="pctl">
-            <button type="button" className="btn btn-s btn-sm" id="play" onClick={() => toast("Playback is simulated in this mockup.")}>{`Play from ${mmss(pos)}`}</button>
-            <div className="pbar" id="pbar" role="slider" aria-label="Position" aria-valuemin={0} aria-valuemax={durS} aria-valuenow={pos} tabIndex={0}>
-              <span className="pfill" style={{ width: `${pct}%` }} />
-              {v.moments.map((m) => <span key={m[0]} className="pmark" style={{ left: `${((m[0] * 60) / durS) * 100}%` }} data-tip={mmss(m[0] * 60)} data-tip-text={m[1]} />)}
-            </div>
-            <span className="small num muted">{`${mmss(pos)} / ${mmss(durS)}`}</span>
-          </div>
-          <h3 style={{ marginTop: 16 }}>Key moments</h3>
-          <ul className="moments">{v.moments.map((m) => <li key={m[0]}><button type="button" className="btn-link" data-seek={mmss(m[0] * 60)} onClick={() => onSeek(mmss(m[0] * 60))}>{mmss(m[0] * 60)}</button><span>{m[1]}</span></li>)}</ul>
-        </div>
-        <div>
-          <div className="box"><h3>Short summary</h3><p style={{ margin: "6px 0 0" }}>{v.summary}</p></div>
-          <div className="box" style={{ marginTop: 12 }}><h3>Recruiter notes</h3><p style={{ margin: "6px 0 0" }}>{v.notes}</p><p className="xs muted" style={{ margin: "8px 0 0" }}>{`${v.by}, Revenue Optics`}</p></div>
-          <div className="box" style={{ marginTop: 12 }}><h3>Transcript</h3><p className="small muted" style={{ margin: "6px 0 0" }}>Not included in this mockup.</p></div>
-        </div>
-      </div>
-    </>
-  );
+function Interview({c}:{c:Submission}) {
+  if(!c.iv)return <p className="muted">No screening interview has been shared for this candidate.</p>;
+  const v=c.iv;
+  return <RecruiterScreening date={v.date} duration={v.dur} by={v.by} summary={v.summary} notes={v.notes} moments={v.moments.map(([minute,label])=>({time:mmss(minute*60),label}))} demo/>;
 }
 
 function Resume({ c }: { c: Submission }) {
@@ -192,7 +137,7 @@ function Actions({ c, form, saved, onOpen, onDone }: {
         {c.stage !== "To review" && p.decline && decline}
         {role.status === "On hold" && c.stage === "To review" && <p className="small muted">This role is on hold, so stage changes are paused.</p>}
       </div>
-      {options.length > 0 && <>
+      {options.length > 0 && <details className="other-stage-actions"><summary>Other stage actions</summary>
         <label className="small" htmlFor="mv" style={{ display: "block", fontWeight: 600, marginTop: 4 }}>Move to another stage</label>
         <div style={{ display: "flex", gap: 8 }}>
           <select id="mv" className="sel" style={{ minWidth: 0, flex: 1 }} value={moveTo || options[0]} onChange={(e) => setMoveTo(e.target.value)}>
@@ -200,7 +145,7 @@ function Actions({ c, form, saved, onOpen, onDone }: {
           </select>
           <button type="button" className="btn btn-s btn-sm" data-form="move" onClick={() => onOpen({ kind: "move", to: (moveTo || options[0]) as Exclude<Stage, "Declined"> })}>Continue</button>
         </div>
-      </>}
+      </details>}
     </>
   );
 }
