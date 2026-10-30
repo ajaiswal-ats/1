@@ -40,9 +40,9 @@ All data in this repository and in the development database is fictional. No rea
 
 ## 4. Local setup
 
-### Prepared recruiter workspace (not applied or deployed)
+### Unfinished recruiter workspace (excluded from production)
 
-The separate `/recruiter.html` entry provides internal CV/scoring review, screening ratings, review history and explicit sharing of reviewed client summaries. Its new staff-access and storage migration is prepared locally and must be reviewed/applied separately. Hosted CV intake and AI drafting remain local; the current test scoring rules still block client sharing until approved. See [recruiter workspace setup and limits](docs/recruiter-workspace.md).
+Recruiter source provides internal CV/scoring review, screening ratings, review history and guarded sharing of reviewed client summaries. The standard production build includes only the client portal and fictional demo; `recruiter.html` and recruiter-only code are excluded. Use `npm run recruiter:preview` for the fictional local preview. Local WIP checkpoint `a7376be` exists; the later locally implemented visibility fix is uncommitted. M7 is prepared locally and needs separate review and rollout authorisation. Existing client facts/screening summaries block replacement, and any prior package withdrawal blocks sharing; neither replacement review nor reinstatement is implemented. Hosted intake/AI, accepted permission policies, hosted security/concurrency and post-launch recovery remain incomplete or unverified. See [recruiter workspace setup and limits](docs/recruiter-workspace.md) and [verification evidence](VERIFICATION.md).
 
 Requirements: a current Node.js release (developed with Node 25) and npm.
 

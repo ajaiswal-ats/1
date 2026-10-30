@@ -49,4 +49,22 @@ describe("hosted recruiter review boundaries", () => {
     const rpc = vi.fn().mockResolvedValue({ data: null, error: { code: "PT409", message: "client_package_withdrawn" } });
     await expect(createGateway({ rpc }).share(recruiterFixture())).rejects.toThrow(/withdrawn.*cannot reinstate.*Nothing was published/i);
   });
+  it.each([true, false, null])("renders current client visibility honestly when published is %s", (published) => {
+    const a = recruiterFixture(); a.reviewed = true; a.published = published;
+    const html = renderToStaticMarkup(<AssessmentEditor assessment={a} gateway={{} as Gateway} onSaved={() => {}} onDirty={() => {}} />);
+    if (published === true) {
+      expect(html).toContain("This saved version is visible to the client.");
+    } else {
+      expect(html).not.toContain("This saved version is visible to the client.");
+      expect(html).toContain("This saved version is not currently visible to the client.");
+      expect(html).not.toContain("Internal until explicitly shared.");
+    }
+  });
+  it("keeps an already-shared current revision blocked even when its package is no longer visible", () => {
+    const a = recruiterFixture(); a.reviewed = true; a.published = false;
+    a.history = [{ revision: a.revision, kind: "share", reviewer: "Fictional recruiter", reason: "Fictional share.", at: "2026-10-30T10:00:00Z" }];
+    expect(shareProblems(a)).toContain("This version has already been shared.");
+    a.history[0].revision = a.revision - 1;
+    expect(shareProblems(a)).not.toContain("This version has already been shared.");
+  });
 });

@@ -146,14 +146,19 @@ begin
   return coalesce((select jsonb_agg(jsonb_build_object(
       'id', a.id, 'candidate', p.name, 'client', c.name, 'role', r.title,
       'revision', a.revision, 'reviewed', a.reviewed_revision = a.revision,
-      'published', a.published_revision = a.revision, 'updatedAt', a.updated_at)
+      -- Availability to an authorised member of this client, matching package RLS and the saved revision.
+      'published', coalesce(a.published_revision = a.revision and pkg.state = 'published'
+        and s.publication = 'published' and pkg.requirement_set_id = rs.id, false), 'updatedAt', a.updated_at)
       order by p.name, a.id)
     from app_private.scoring_assessments a
     join app_private.recruiter_clients access on access.client_id = a.client_id and access.user_id = auth.uid()
     join public.submissions s on s.id = a.submission_id
     join public.people p on p.id = s.person_id
     join public.roles r on r.id = s.role_id
-    join public.clients c on c.id = a.client_id), '[]'::jsonb);
+    join public.clients c on c.id = a.client_id
+    left join public.role_requirement_sets rs on rs.role_id = r.id and rs.client_id = a.client_id and rs.status = 'agreed'
+    left join public.submission_packages pkg on pkg.id = a.published_package_id
+      and pkg.submission_id = s.id and pkg.role_id = r.id and pkg.client_id = a.client_id), '[]'::jsonb);
 end $$;
 
 create function public.recruiter_assessment(p_id uuid) returns jsonb
@@ -168,7 +173,8 @@ begin
     'candidate', p.name, 'client', c.name, 'role', r.title, 'revision', a.revision,
     'rubric', a.rubric, 'inputs', a.inputs, 'originalInputs', a.original_inputs, 'evidence', a.evidence,
     'preparedBy', a.prepared_by, 'screeningQuestions', a.screening_questions, 'review', a.review, 'reviewed', a.reviewed_revision = a.revision,
-    'published', a.published_revision = a.revision,
+    'published', coalesce(a.published_revision = a.revision and pkg.state = 'published'
+      and s.publication = 'published' and pkg.requirement_set_id = rs.id, false),
     'setId', rs.id, 'requirements', coalesce((select jsonb_agg(jsonb_build_object('id', q.id, 'text', q.text, 'tier', q.tier) order by q.position)
       from public.role_requirements q where q.set_id = rs.id), '[]'::jsonb),
     'history', coalesce((select jsonb_agg(jsonb_build_object('revision', h.revision, 'kind', h.kind,
@@ -177,7 +183,9 @@ begin
       where h.assessment_id = a.id), '[]'::jsonb)) into result
     from public.submissions s join public.people p on p.id = s.person_id
     join public.roles r on r.id = s.role_id join public.clients c on c.id = s.client_id
-    left join public.role_requirement_sets rs on rs.role_id = r.id and rs.status = 'agreed'
+    left join public.role_requirement_sets rs on rs.role_id = r.id and rs.client_id = a.client_id and rs.status = 'agreed'
+    left join public.submission_packages pkg on pkg.id = a.published_package_id
+      and pkg.submission_id = s.id and pkg.role_id = r.id and pkg.client_id = a.client_id
     where s.id = a.submission_id;
   return result;
 end $$;

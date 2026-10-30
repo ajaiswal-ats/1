@@ -119,7 +119,7 @@ export function shareProblems(a: Assessment): string[] {
   const p: string[] = [], r = a.review;
   if (!a.rubric.approved) p.push("Scoring rules await approval.");
   if (!a.reviewed || !r) p.push("Save a recruiter review of the current assessment.");
-  if (a.published) p.push("This version has already been shared.");
+  if (a.published || a.history.some((h) => h.kind === "share" && h.revision === a.revision)) p.push("This version has already been shared.");
   if (r?.decision !== "forward") p.push("Record a decision to put the candidate forward.");
   if (a.inputs.gates.some((g) => g.result === "Fail")) p.push("An essential requirement is not met.");
   if (a.inputs.criteria.some((c) => c.status === "disputed")) p.push("Conflicting CV evidence needs resolving.");

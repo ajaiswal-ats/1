@@ -357,3 +357,62 @@ describe("withdrawal cannot be reinstated through recruiter sharing", () => {
     expect((await p.db.query("select * from public.submission_packages where id=$1", [packageId])).rows).toEqual(history);
   });
 });
+
+async function sharedVisibilityFixture(options) {
+  const { id } = await contentFixture(options);
+  return { id, packageId: (await share(id)).rows[0].id };
+}
+async function expectVisibility({ id, packageId }, expected, clientCanRead = expected) {
+  const detail = (await asUser(p.db, staff, "select public.recruiter_assessment($1) as a", [id])).rows[0].a;
+  const queue = (await asUser(p.db, staff, "select public.recruiter_assessments() as rows")).rows[0].rows;
+  expect(detail.published).toBe(expected);
+  expect(queue.find(row => row.id === id).published).toBe(expected);
+  if (packageId) {
+    expect((await visibleContent(clientUser, packageId)).packages).toHaveLength(clientCanRead ? 1 : 0);
+    expect((await visibleContent(p.ids["portal-test-northwind@example.com"], packageId)).packages).toEqual([]);
+  }
+}
+describe("recruiter visibility matches the linked current package and client RLS", () => {
+  it("reports a currently published and client-accessible saved version as visible", async () => {
+    await expectVisibility(await sharedVisibilityFixture(), true);
+  });
+  it.each(["withdrawn", "paused", "superseded"])("does not report a %s package as visible", async (state) => {
+    const a = await sharedVisibilityFixture();
+    await p.db.query("update public.submission_packages set state=$2 where id=$1", [a.packageId, state]);
+    await expectVisibility(a, false);
+  });
+  it("does not report a package on an unpublished submission as visible", async () => {
+    const a = await sharedVisibilityFixture();
+    await p.db.query("update public.submissions set publication='unpublished' where id=(select submission_id from app_private.scoring_assessments where id=$1)", [a.id]);
+    await expectVisibility(a, false);
+  });
+  it("does not report a newer unshared review as visible, preserving pause-on-review", async () => {
+    const a = await sharedVisibilityFixture();
+    await save(a.id, inputs, review(), 2);
+    expect((await p.db.query("select state from public.submission_packages where id=$1", [a.packageId])).rows[0].state).toBe("paused");
+    await expectVisibility(a, false);
+    // Even if the owner makes the OLD package visible again, it is not the current saved assessment revision.
+    await p.db.query("select app_private.publish_package($1)", [a.packageId]);
+    await expectVisibility(a, false, true);
+  });
+  it("returns false rather than null when no package has been shared", async () => {
+    await expectVisibility({ id: await fixture(true), packageId: null }, false);
+  });
+  it.each(["another submission", "another client"])("does not claim visibility through a pointer to %s's package", async (target) => {
+    const a = await sharedVisibilityFixture();
+    const otherId = target === "another submission" ? (await sharedVisibilityFixture()).packageId
+      : (await p.db.query("select id from public.submission_packages where client_id=$1 and state='published' limit 1", [otherClientId])).rows[0].id;
+    await p.db.query("update app_private.scoring_assessments set published_package_id=$2 where id=$1", [a.id, otherId]);
+    await expectVisibility(a, false, true);
+  });
+  it("does not report a published package on obsolete requirements as visible", async () => {
+    const roleId = (await p.db.query("insert into public.roles(client_id,ref,title,status,opened_on) values($1,gen_random_uuid()::text,'Synthetic visibility role','Open',current_date) returning id", [clientId])).rows[0].id;
+    const set = (await p.db.query("insert into public.role_requirement_sets(client_id,role_id,version,label) values($1,$2,1,'Synthetic visibility requirements') returning id", [clientId, roleId])).rows[0].id;
+    const rows = (await p.db.query("insert into public.role_requirements(client_id,set_id,position,text,tier) values($1,$2,1,'Synthetic visibility requirement','must') returning id", [clientId, set])).rows;
+    await p.db.query("select app_private.agree_requirement_set($1,current_date)", [set]);
+    const a = await sharedVisibilityFixture({ roleId, requirementSet: set, requirementRows: rows });
+    await expectVisibility(a, true);
+    await p.db.query("update public.role_requirement_sets set status='superseded' where id=$1", [set]);
+    await expectVisibility(a, false);
+  });
+});

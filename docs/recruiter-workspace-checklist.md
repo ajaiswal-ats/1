@@ -2,7 +2,9 @@
 
 Prepared 30 October 2026, following comparison of the current client portal and four recruiter-preview screenshots.
 
-This is a planning checklist, not authorisation to implement every item or change a hosted service. Existing instructions remain: **do not commit, push, deploy or apply hosted database changes**. No real candidate information is needed for UI review.
+Status reconciled with source and checks on 31 October 2026. Local WIP checkpoint `a7376be` exists on `wip/recruiter-workspace`; the later visibility fix and documentation changes remain uncommitted. The standard production build includes only the client portal and fictional demo. Recruiter source is excluded, while `npm run recruiter:preview` still provides the fictional local preview.
+
+This is a planning checklist, not authorisation to implement every item or change a hosted service. **No staging, further commits, pushes, deployments or hosted database changes are authorised by this update.** No real candidate information is needed for UI review.
 
 The workspace covers assessment, recruiter review and controlled client sharing. It does not replace Manatal's wider recruiting operations unless that scope is explicitly agreed. Missing information must be shown as missing, never inferred from names, scores or sample data.
 
@@ -16,30 +18,38 @@ The workspace covers assessment, recruiter review and controlled client sharing.
 | P3 | Final usability and release verification | Required checks before a separately approved rollout |
 | Deferred | Business decisions or later integrations | No invented rules or automatic activation |
 
-Checked items below mean built and checked **locally**, not live. Every unchecked item remains open. IDs stay stable so progress can be reported against this document.
+Checked items below mean implemented locally and covered by previously reported local checks, not live or accepted for release. This documentation reconciliation reads current code and test cases; it does not rerun implementation tests. See the [verification record](../VERIFICATION.md) for the reported runs and their limits. Every unchecked item remains open; IDs stay stable.
 
 ## Existing foundation — retain
 
 - [x] F01 — Reuse the existing deterministic CV calculator; keep CV and screening separate.
 - [x] F02 — Prepare a separate recruiter entry, staff membership/client assignments, and server-side access checks.
-- [x] F03 — Prepare review saves with revision conflicts, original evidence retention and author/time history.
+- [x] F03 — Require expected revisions for save/share, explicitly reject NULL and incorrect revisions with null-safe comparison, reject omitted arguments, retain originals and record author/time history. Refused requests leave relevant records unchanged.
 - [x] F04 — Require evidence and reasons for rating corrections; prevent screening evidence from raising CV skill ratings.
 - [x] F05 — Keep internal scores, ratings and decision reasons out of client-summary publication.
 - [x] F06 — Provide a local fictional UI preview, with no hosted writes or client sharing.
+- [x] F07 — Exclude recruiter HTML and functionality from standard production output and client imports; enforce this with isolation checks while retaining the fictional local preview.
+- [x] F08 — Refuse replacement when published or paused packages for this submission contain key facts or reviewed screening summaries. Keep content/history/visibility unchanged on refusal; do not publish internal screening or invent replacement content. This is a safeguard, not the replacement workflow in P0-02/P0-03.
+- [x] F09 — Check withdrawal under locks inside sharing. Any prior withdrawn package for this submission blocks sharing, even with a newer published package; superseded history and other submissions' withdrawals do not. Unpublished submissions are also blocked. No reinstatement workflow exists.
+- [x] F10 — Derive list/detail visibility from the linked package, same client/submission/role, current published assessment revision, package/submission publication and current agreed requirements. UI wording reflects visibility at the latest fetch; history still blocks duplicate sharing. This fix is implemented locally but uncommitted after the checkpoint.
+
+Current behaviour requiring acceptance: saving a subsequent review pauses its previously shared package if still published, including internal-only edits. Client RLS then hides the package and linked screening summary. The save message does not explain this visibility effect. Assigned active recruiters can currently review and publish their own reviews; no separate approver/publisher permission is enforced. These facts do not close P0-07 or P0-12.
 
 ## P0 — Correctness, database and access blockers
 
 - [ ] P0-01 — Agree the source of truth for candidate, role and submission records: identify what stays in Manatal and what this workspace may create or update.
-- [ ] P0-02 — Preserve existing client key facts when replacing a summary. Add explicit review/edit support for relevant facts; never overwrite them with an empty array by default.
-- [ ] P0-03 — Complete the reviewed screening-summary handoff: call date, interviewer, duration, approved summary and client-safe notes/key moments. Bind it to the correct published package.
+- [ ] P0-02 — Complete or explicitly exclude from the release scope a workflow to review/edit/preserve existing client key facts during replacement. The implemented fallback refuses replacement when facts exist; it does not validate or copy them.
+- [ ] P0-03 — Complete or explicitly exclude from the release scope the reviewed screening-summary handoff: call date, interviewer, duration, approved summary and client-safe notes/key moments. The implemented fallback refuses replacement when a reviewed summary exists; raw answers, ratings and internal notes are never substitutes.
 - [ ] P0-04 — Design and implement first sharing of a candidate submission. A recruiter must be able to prepare/review before the client can see it; summary publication must not require an already-shared candidate as its only entry path.
-- [ ] P0-05 — Confirm how candidate publication, summary publication and screening-summary publication are committed together; failed requests must leave no partly shared candidate.
+- [ ] P0-05 — Complete the first-share transaction design across candidate, package and reviewed screening content. Existing eligible replacement is atomic and a late failure is covered by offline rollback tests; first sharing and screening handoff are still incomplete.
 - [ ] P0-06 — Handle reassessment with a new CV or AI run. Preserve old runs, identify the current run and invalidate affected reviews/client summaries without overwriting original records.
-- [ ] P0-07 — Agree and enforce staff permissions: who reviews, who approves rules/content, who shares, and who manages client assignments. The current generic recruiter role is only the initial foundation.
+- [ ] P0-07 — Accept or revise staff permissions: currently any assigned active recruiter can review and publish their own reviewed summary. There is no separate content approver/publisher role. The owner provisions staff/assignments and imports immutable rubrics; browsers cannot approve rules. Define rule/content approval ownership without assuming two-person approval is already required or implemented.
 - [ ] P0-08 — Complete the invitation/account-activation, password-recovery and access-revocation flows under the company's authentication policy. Client accounts must never gain recruiter access automatically.
-- [ ] P0-09 — Extend/review the database migration and rollback for the agreed facts, screening, first-share and versioning flows. Add constraints, grants and audit attribution for those changes; prepare files only.
+- [ ] P0-09 — Review M7 against the agreed release scope and prepare recovery for populated installations. Its rollback refuses once any staff, assignment, assessment or review-history data exists. Post-launch rollback, backup/restore and recovery remain unverified; the empty-setup rollback is not a launch recovery plan.
 - [ ] P0-10 — Verify explicit client/role/candidate/submission mappings on the server and during import. Reject mismatches; never match candidates by name or silently select another rubric version.
-- [ ] P0-11 — Test access, duplicate/retried publication, failed publication, two-session conflicts, revocation and stale summaries. Confirm existing client behaviour and shared data remain correct.
+- [ ] P0-11 — Close hosted security and genuinely concurrent-session checks for access/revocation, retries, publication failure and stale data. These cases have substantial reported offline coverage, including all four local fixes; neither source review nor PGlite/intercepted browser tests prove hosted behaviour.
+- [ ] P0-12 — Accept or revise pause-on-review and make the effect clear before saving: subsequent internal-only edits can remove previously shared content from client visibility. No automatic restoration exists.
+- [ ] P0-13 — Accept the conservative any-prior-withdrawal policy. If reinstatement is needed, agree a separately authorised workflow and permissions before implementing it; do not bypass or weaken the current refusal.
 
 Acceptance: no silent fact loss; no internal data exposed to clients; no partial first-share state; no stale review can publish; no cross-client access.
 
@@ -57,7 +67,7 @@ Acceptance: no silent fact loss; no internal data exposed to clients; no partial
 - [ ] P1-10 — Add role context: job description, agreed requirements, scoring rubric/version and approval status, with a clear route back to the candidate.
 - [ ] P1-11 — Add a concise assessment overview: key experience, evidence-backed strengths, gaps, essential checks and evidence coverage. Clearly label the draft score and its limits.
 - [ ] P1-12 — Match recruiter sign-in to the client portal's branded sign-in layout, with staff-specific wording, password visibility, recovery/help and appropriate no-access/error states.
-- [ ] P1-13 — Clarify saved versus unsaved values, last saved/reviewed information and publication state. Make disabled sharing visibly disabled and explain its blockers nearby.
+- [ ] P1-13 — Complete saved/unsaved and last-review information, explain save side effects and sharing blockers. Current visibility and already-shared history are now distinguished locally; visibility does not update in realtime without a fresh fetch.
 - [ ] P1-14 — Replace developer wording such as “the starter” in normal product screens. Keep sample labels only in the explicitly fictional preview.
 - [ ] P1-15 — Present a representative fictional role with a complete rubric/question set, realistic candidate facts, quotes, saved history and empty/error examples. Do not mistake the current tiny fixture for the actual role configuration.
 
@@ -88,7 +98,7 @@ Acceptance: an authorised recruiter can take a candidate from intake through ass
 - [ ] P3-03 — Check desktop, tablet and mobile layouts, light/dark themes, long names, long evidence and large question sets.
 - [ ] P3-04 — Run meaningful unit, offline database and browser checks for the final scope, including the client portal as a regression target.
 - [ ] P3-05 — Repeat private-content/build-secret checks and verify that client pages cannot load recruiter tools, source documents or private data.
-- [ ] P3-06 — Update setup/verification documents, database checks and rollback notes to match the final implementation and its remaining limits.
+- [ ] P3-06 — Reconcile final release documentation and operational checks after scope/policy acceptance. Setup, checklist and reported verification were reconciled on 31 October; hosted checks and populated-installation recovery still remain open.
 - [ ] P3-07 — Present the completed flow on the local server for user review, including separate login, staff workspace and exact client output. Record design corrections before considering rollout.
 
 Acceptance: the final UI is reviewable locally and supported by current validation evidence, with unresolved limits stated plainly.
@@ -106,7 +116,7 @@ Acceptance: the final UI is reviewable locally and supported by current validati
 - [ ] R01 — Review and explicitly approve the final database migration and its target environment before applying it.
 - [ ] R02 — Provision approved staff/client assignments and approved fictional test imports; verify the hosted flow and genuinely concurrent sessions.
 - [ ] R03 — Obtain separate authorisation for any real candidate-data import or hosted AI processing required for live use.
-- [ ] R04 — Commit/push/deploy only after the user changes the current “do not commit/do not deploy” instruction and approves that action.
+- [ ] R04 — Obtain separate authorisation for further commit/push/deploy actions. The local WIP checkpoint is not a release. Inspect preview-deployment triggers, build/output settings, environment bindings and protection before describing a branch push as backup-only; those settings remain unverified.
 
 ## Suggested implementation sequence
 
