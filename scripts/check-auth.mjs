@@ -317,8 +317,9 @@ try {
 
   /* Stage changes (made-up server). Riley Offline, Field Technician (open role), Interview v1 → Offer [provisional]. */
   const moveCalls = () => rpcCalls.length;
-  await A.locator(".other-stage-actions > summary").click(); await A.selectOption("#mv", "Offer");
-  await A.click("[data-form=move]");
+  await A.evaluate(() => (location.hash = "#candidates"));
+  await A.getByRole("article", { name: "Riley Offline, Field Technician", exact: true }).getByRole("button", { name: "Actions for Riley Offline", exact: true }).click();
+  await A.getByRole("menuitem", { name: "Move to Offer", exact: true }).click();
   ck("move form: Offer is marked provisional, and nothing claims a notification or Manatal update", (await A.innerText("#moveForm")).includes("Provisional for development testing") && (await A.innerText("#moveForm")).includes("nobody is notified and Manatal is not updated"));
   await shot(A, "move-form");
   let n0 = moveCalls();
@@ -326,7 +327,7 @@ try {
   ck("move: success is shown after the server confirms", await waitText(A, ".act", "Stage saved: Offer"));
   ck("move: a double click sends one request, with the version seen and a new key", moveCalls() - n0 === 1 && rpcCalls.at(-1).p_expected_version === 2 && /^[0-9a-f-]{36}$/.test(rpcCalls.at(-1).p_idempotency_key));
   await shot(A, "move-saved");
-  ck("move: the page shows the refreshed stage from the database", await waitText(A, ".statusdl", "Offer"));
+  ck("move: the page shows the refreshed stage from the database", await waitText(A, ".detail-facts", "Offer"));
   await A.click("text=Done");
   ck("after Done: no further moves from Offer [provisional rule]", await waitText(A, ".act", "Stage changes from Offer are not available"));
   await A.click("[data-tab=notes]");
@@ -346,7 +347,7 @@ try {
   ck("conflict: a stale version is reported, not retried against the newer version", await waitText(A, ".act", "changed since you opened the page") && moveCalls() - n0 === 1);
   await shot(A, "move-conflict");
   await A.click("text=Review the latest stage");
-  ck("conflict: the latest stage from the database is shown for review", await waitText(A, ".statusdl", "Offer"));
+  ck("conflict: the latest stage from the database is shown for review", await waitText(A, ".detail-facts", "Offer"));
   await A.click("[data-tab=notes]");
   ck("history: another member's move is 'Client team', not 'You'", await waitText(A, ".hist", "Client team moved Jordan to Offer") && !(await A.innerText(".hist")).includes("You moved Jordan"));
   bump("c1", "5a1a0000-0000-4000-8000-000000000014", "Interview");     /* the made-up "other user" moves it back, so the next test can move it */
@@ -356,7 +357,10 @@ try {
   control.loseRpcAnswers = 2;
   const eventsBefore = WORKSPACES.c1.submission_events.length;
   n0 = moveCalls();
-  await A.locator(".other-stage-actions > summary").click(); await A.selectOption("#mv", "To review"); await A.click("[data-form=move]"); await A.click("#moveForm button[type=submit]");
+  await A.evaluate(() => (location.hash = "#candidates"));
+  await A.getByRole("button", { name: "Actions for Jordan Offline", exact: true }).click();
+  await A.getByRole("menuitem", { name: "Move to To review", exact: true }).click();
+  await A.click("#moveForm button[type=submit]");
   ck("no answer: an uncertain outcome, not a failure", await A.waitForFunction(() => document.querySelector(".act")?.textContent?.includes("could not be confirmed"), null, { timeout: 8000 }).then(() => true, () => false));
   await shot(A, "move-uncertain");
   await A.click("text=Check again");
@@ -375,7 +379,7 @@ try {
   { const t = await body(A); ck("sign-out while saving: the late answer is ignored", !t.includes("Stage saved") && !t.includes("Jordan Offline")); }
   await signIn(A, "active@example.com"); await waitClient(A, "Offline Test Client");
   await A.evaluate(() => (location.hash = "#c-5a1a0000-0000-4000-8000-000000000014")); await waitH1(A, "Jordan Offline");
-  ck("after signing in again: no leftover message, the saved stage is read from the database", !(await body(A)).includes("Stage saved") && await waitText(A, ".statusdl", "Interview"));
+  ck("after signing in again: no leftover message, the saved stage is read from the database", !(await body(A)).includes("Stage saved") && await waitText(A, ".detail-facts", "Interview"));
 
   /* Decisions (milestone 2), on Jordan Offline (Field Technician, open role, Interview). */
   ck("decisions: Decline and Share interview feedback are offered at Interview on an open role [provisional]",
@@ -387,7 +391,7 @@ try {
   ck("feedback: an empty note is refused in the form, and nothing is sent", (await A.innerText("#actForm .err")).includes("Add your feedback before sharing.") && rpcCalls.length === d0);
   await A.fill("#fNote", "Strong on scheduling; check weekend availability.");
   await A.dblclick("#actForm button[type=submit]");
-  ck("feedback: saved after the server confirms; the stage is unchanged", await waitText(A, ".act", "Feedback saved") && (await A.innerText(".act")).includes("Stage unchanged") && await waitText(A, ".statusdl", "Interview"));
+  ck("feedback: saved after the server confirms; the stage is unchanged", await waitText(A, ".act", "Feedback saved") && (await A.innerText(".act")).includes("Stage unchanged") && await waitText(A, ".detail-facts", "Interview"));
   ck("feedback: a double click sends one request (client_add_feedback, version seen, new key)", rpcCalls.length - d0 === 1 && rpcCalls.at(-1).fn === "client_add_feedback" && rpcCalls.at(-1).p_expected_version === jordanVersion, `sent ${rpcCalls.length - d0}, version ${rpcCalls.at(-1).p_expected_version} of ${jordanVersion}`);
   await A.click("text=Done");
   await A.click("[data-tab=notes]");

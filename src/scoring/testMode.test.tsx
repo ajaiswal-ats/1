@@ -190,7 +190,7 @@ describe("normal mode is unchanged", () => {
   it("without an extension: the usual empty summary, client actions and Shared wording", () => {
     const html = render(ws, "c-sub-a", null);
     expect(html).toContain("No summary is currently shared for this candidate.");
-    expect(html).toContain('data-form="move"');
+    expect(html).toContain('data-form="interview"');
     expect(html).toContain('<div class="cd">');
     expect(html).toContain('aria-label="Next step"');
     expect(html).toContain("<dt>Shared</dt><dd>4 Jan</dd>");

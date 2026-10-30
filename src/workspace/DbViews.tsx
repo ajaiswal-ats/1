@@ -150,7 +150,7 @@ function CandidateDetail({ ws, id, moves, memberId, today }: { ws: Workspace; id
         <aside className="card act" aria-label="Next step"><div className="pad">
           <h2>Next step</h2>
           {t && <div className={`nextbox ${t.cls}`}><b>{t.long}</b>{t.sub && <span className="small">{t.sub}</span>}</div>}
-          <dl className="statusdl"><dt>Stage</dt><dd>{c.stage}</dd><dt>Recruiter screening</dt><dd>{sc?`Held ${fd(sc.callOn)} by ${sc.recruiterName}`:row.screening}</dd><dt>Client interview</dt><dd>{row.interview}</dd>{offer && <><dt>Offer status</dt><dd>{offer}</dd></>}{r.recruiterName && <><dt>Recruiter</dt><dd>{`${r.recruiterName}, Revenue Optics`}</dd></>}</dl>
+          <dl className="statusdl"><dt>Recruiter screening</dt><dd>{sc?`Held ${fd(sc.callOn)} by ${sc.recruiterName}`:row.screening}</dd>{offer && <><dt>Offer status</dt><dd>{offer}</dd></>}{r.recruiterName && <><dt>Recruiter</dt><dd>{`${r.recruiterName}, Revenue Optics`}</dd></>}</dl>
           {extActions ?? <>
             <ActionPanel key={c.id} sub={c} role={r} moves={moves} decisions={ws.notes !== null} feedbackRound={ws.steps ? feedbackTask(ws, c)?.id ?? null : undefined} />
             <p className="mock"><InfoIcon/><span>{NOT_NOTIFIED}</span></p>
@@ -250,7 +250,7 @@ const label = (r: { action?: string; toStage: string }) => (r.action === "declin
    when feedback would be general; undefined without milestone 4. */
 function ActionPanel({ sub, role, moves, decisions, feedbackRound }: { sub: DbSubmission; role: DbRole; moves: MovesProps; decisions: boolean; feedbackRound?: string | null }) {
   const candidatesHref=useCandidatesHref();
-  const targets = moveTargets(sub, role), otherTargets=targets.filter(t=>!(sub.stage==="To review"&&t==="Interview")), [choice, setChoice] = useState<MoveTarget | "">("");
+  const targets = moveTargets(sub, role);
   /* The version and stage the user is looking at when they open a form are the ones sent: a change in between is a conflict. */
   const [form, setForm] = useState<Form | null>(()=>{if(typeof location==='undefined')return null;const action=readBoardAction(location.hash,targets,decisions&&canDecline(sub,role));return action?{...action,version:sub.version,stage:sub.stage}:null;});
   const m = moves.state, mine = m.status !== "idle" && m.account === moves.account, here = mine && ("request" in m ? m.request.submissionId : m.submissionId) === sub.id;
@@ -296,7 +296,7 @@ function ActionPanel({ sub, role, moves, decisions, feedbackRound }: { sub: DbSu
   if (form) return <DecisionForm form={form} roleTitle={role.title} onCancel={() => setForm(null)}
     onSubmit={(intent) => { if (moves.act(sub, intent.action === "feedback" && form.kind === "feedback" && form.round ? { ...intent, interviewId: form.round } : intent, { version: form.version, stage: form.stage })) setForm(null); }} />;
 
-  const decline = decisions && canDecline(sub, role), feedback = decisions && canGiveFeedback(sub, role), to = (choice || otherTargets[0]) as MoveTarget;
+  const decline = decisions && canDecline(sub, role), feedback = decisions && canGiveFeedback(sub, role);
   const why = !decisions ? "Not available on this database yet" : "Not available for this stage or role (provisional rules)";
   return (
     <>
@@ -308,15 +308,7 @@ function ActionPanel({ sub, role, moves, decisions, feedbackRound }: { sub: DbSu
         <button type="button" className={`btn btn-s${feedback ? "" : " btn-off"}`} data-form="feedback" disabled={!feedback} title={feedback ? undefined : why}
           onClick={() => setForm({ kind: "feedback", version: sub.version, stage: sub.stage, round: feedbackRound ?? null })}>Share interview feedback</button>
       </div>
-      {otherTargets.length > 0 ? <details className="other-stage-actions"><summary>Other stage actions</summary>
-        <label className="small" htmlFor="mv" style={{ display: "block", fontWeight: 600, marginTop: 4 }}>Move to another stage</label>
-        <div style={{ display: "flex", gap: 8 }}>
-          <select id="mv" className="sel" style={{ minWidth: 0, flex: 1 }} value={to} onChange={(e) => setChoice(e.target.value as MoveTarget)}>
-            {otherTargets.map((s) => <option key={s} value={s}>{s === "Offer" || s === "Hired" ? `${s} (provisional)` : s}</option>)}
-          </select>
-          <button type="button" className="btn btn-s btn-sm" data-form="move" onClick={() => setForm({ kind: "move", to, version: sub.version, stage: sub.stage })}>Continue</button>
-        </div>
-      </details> : sub.stage !== "Declined" && <p className="small muted">{role.status !== "Open" ? `This role is ${role.status.toLowerCase()}, so stage changes are paused.` : `Stage changes from ${sub.stage} are not available in this version.`}</p>}
+      {targets.length === 0 && sub.stage !== "Declined" && <p className="small muted">{role.status !== "Open" ? `This role is ${role.status.toLowerCase()}, so stage changes are paused.` : `Stage changes from ${sub.stage} are not available in this version.`}</p>}
       {!decisions && <p className="small muted">Decline and interview feedback are not available on this database yet.</p>}
     </>
   );

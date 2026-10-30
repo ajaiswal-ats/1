@@ -97,9 +97,10 @@ describe("Candidates (database)", () => {
     expect(h).toContain("Decline and interview feedback are not available on this database yet.");
     expect(h).toMatch(/data-form="decline" disabled="" title="Not available on this database yet"/);
   });
-  it("stage choices follow the provisional rule: open role, not from Offer/Hired/Declined, Offer and Hired marked provisional", () => {
+  it("omits the secondary stage selector and retains on-hold and declined explanations", () => {
     const h = page("c-s1");                                     // Interview, open role
-    expect(h).toContain('<option value="To review" selected="">To review</option><option value="Offer">Offer (provisional)</option><option value="Hired">Hired (provisional)</option>');
+    expect(h).not.toContain('Other stage actions');
+    expect(h).not.toContain('id="mv"');
     expect(page("c-s2")).toContain("This role is on hold, so stage changes are paused.");
     expect(page("c-s3")).toContain("Declined for this role. The note is in Notes and history.");
     expect(page("c-s3")).not.toMatch(/You declined/);

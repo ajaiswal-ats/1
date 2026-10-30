@@ -40,13 +40,13 @@ export function CandidatePage({ id }: { id: string }) {
     : s === "Resume" ? <>Source: <button type="button" className="btn-link" data-tab="resume" onClick={() => setTab("resume")}>Resume</button></> : `Source: ${s}`;
 
   return (
-    <CandidateDetailFrame id={c.id} name={c.name} headline={c.head} location={c.loc} stage={c.stage} declinedDate={c.declineNote?.date} shared={c.shared}
+    <CandidateDetailFrame id={c.id} name={c.name} headline={c.head} location={c.loc} stage={c.stage} shared={c.shared}
       facts={Object.entries(c.facts).map(([label,value])=>({label,value}))} role={{...role,location:role.loc}} others={others.map(o=>({id:o.id,title:roleOf(data,o).title,stage:o.stage}))}
       rows={rows} roles={data.roles} today={TODAY} back={back} from={from} tab={tab} setTab={setTab} rail={
         <aside className="card act" aria-label="Next step"><div className="pad">
           <h2>Next step</h2>
           <div className={`nextbox ${t.cls}`}><b>{t.long}</b>{t.sub && <span className="small">{t.sub}</span>}</div>
-          <dl className="statusdl"><dt>Stage</dt><dd>{c.stage}</dd><dt>Recruiter screening</dt><dd>{c.iv?`Held ${fd(c.iv.date)} by ${c.iv.by}`:row.screening}</dd><dt>Client interview</dt><dd>{row.interview}</dd>{outcome && <><dt>Offer status</dt><dd>{outcome}</dd></>}<dt>Recruiter</dt><dd>{`${role.contact}, Revenue Optics`}</dd></dl>
+          <dl className="statusdl"><dt>Recruiter screening</dt><dd>{c.iv?`Held ${fd(c.iv.date)} by ${c.iv.by}`:row.screening}</dd>{outcome && <><dt>Offer status</dt><dd>{outcome}</dd></>}<dt>Recruiter</dt><dd>{`${role.contact}, Revenue Optics`}</dd></dl>
           <Actions c={c} form={form} saved={saved} onOpen={setForm} onDone={(a) => { setForm(null); setSaved(savedHeading(a)); }} />
           <p className="mock"><InfoIcon/><span>Mockup: actions are saved only in this browser. Nothing is sent to your recruiter.</span></p>
         </div></aside>}>
@@ -112,7 +112,7 @@ function Actions({ c, form, saved, onOpen, onDone }: {
   c: Submission; form: Form | null; saved: string | null; onOpen: (f: Form | null) => void; onDone: (a: DemoAction) => void;
 }) {
   const candidatesHref=useCandidatesHref();
-  const data = useData(), role = roleOf(data, c), p = permitted(data, c), [moveTo, setMoveTo] = useState<string>("");
+  const data = useData(), role = roleOf(data, c), p = permitted(data, c);
   if (saved) return (
     <>
       <div className="nextbox done" style={{ marginBottom: 4 }}><b>{saved}</b><span className="small">Saved in this mockup only. Nothing was sent.</span></div>
@@ -124,7 +124,6 @@ function Actions({ c, form, saved, onOpen, onDone }: {
   if (c.stage === "Hired" && c.outcome) return <p className="small muted">Nothing more is needed here.</p>;
   if (c.stage === "Hired") return <p className="small muted">Hired stage saved. Revenue Optics will record whether the offer was accepted.</p>;
 
-  const options = p.moveTo.filter((s) => !(c.stage === "To review" && s === "Interview")) as Exclude<Stage, "Declined">[];
   const decline = <button type="button" className="btn btn-d" data-form="decline" onClick={() => onOpen({ kind: "decline" })}>Decline</button>;
   return (
     <>
@@ -137,15 +136,6 @@ function Actions({ c, form, saved, onOpen, onDone }: {
         {c.stage !== "To review" && p.decline && decline}
         {role.status === "On hold" && c.stage === "To review" && <p className="small muted">This role is on hold, so stage changes are paused.</p>}
       </div>
-      {options.length > 0 && <details className="other-stage-actions"><summary>Other stage actions</summary>
-        <label className="small" htmlFor="mv" style={{ display: "block", fontWeight: 600, marginTop: 4 }}>Move to another stage</label>
-        <div style={{ display: "flex", gap: 8 }}>
-          <select id="mv" className="sel" style={{ minWidth: 0, flex: 1 }} value={moveTo || options[0]} onChange={(e) => setMoveTo(e.target.value)}>
-            {options.map((s) => <option key={s}>{s}</option>)}
-          </select>
-          <button type="button" className="btn btn-s btn-sm" data-form="move" onClick={() => onOpen({ kind: "move", to: (moveTo || options[0]) as Exclude<Stage, "Declined"> })}>Continue</button>
-        </div>
-      </details>}
     </>
   );
 }
