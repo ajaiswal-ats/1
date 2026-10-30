@@ -17,11 +17,29 @@ if (!fs.existsSync(path.join(ROOT, "dist/index.html"))) { console.log("FAIL dist
 const walk = (d, out = []) => { if (fs.existsSync(d)) for (const f of fs.readdirSync(d, { withFileTypes: true })) { const p = path.join(d, f.name); f.isDirectory() ? walk(p, out) : out.push(p); } return out; };
 const dist = walk(path.join(ROOT, "dist"));
 
-/* 1. The build contains no scoring page, entry or endpoint. */
+/* 1. Neither local scoring-test code nor the unfinished recruiter workspace belongs in production. */
 const markers = ["__scoring", "scoring-test", "src/scoring", "Local scoring test", "Experimental — not validated", "scoring-test-reviewer-corrections", "Insufficient evidence — no score", "testMode", "Client preview", "Internal review", "Added to local test", "recruiter review pending", "No notes in this test assessment", "pdftool", "extraction-record", "rule-based best-effort blinding"];
 const distHits = dist.filter((f) => { const t = fs.readFileSync(f, "latin1"); return markers.some((m) => t.includes(m)); });
 distHits.length ? fail(`${distHits.length} build file(s) contain scoring-test code or endpoints`) : pass(`no scoring-test code, page or endpoint in ${dist.length} build files`);
-fs.readdirSync(path.join(ROOT, "dist")).some((f) => f.endsWith(".html") && !["index.html", "demo.html"].includes(f)) ? fail("dist has an unexpected HTML entry") : pass("dist has only the portal and explicit fictional demo entries");
+const html = dist.filter((f) => f.endsWith(".html")).map((f) => path.relative(path.join(ROOT, "dist"), f)).sort();
+JSON.stringify(html) !== JSON.stringify(["demo.html", "index.html"]) ? fail("dist must contain exactly the client portal and fictional demo HTML entries") : pass("dist has only the client portal and fictional demo entries");
+const recruiterHits = dist.filter((f) => /recruiter/i.test(path.relative(path.join(ROOT, "dist"), f))
+  || /recruiter_(?:account|assessments?|save_review|share_summary)|Recruiter workspace|ro-recruiter-auth|rec-stats/.test(fs.readFileSync(f, "utf8")));
+recruiterHits.length ? fail(`${recruiterHits.length} build file(s) contain recruiter-only assets or functionality`) : pass("no recruiter-only assets or functionality anywhere in dist");
+
+// Also follow client imports to check that neither entry loads recruiter functionality.
+const reached = new Set();
+const follow = (file) => {
+  if (reached.has(file) || !fs.existsSync(file)) return;
+  reached.add(file);
+  const content = fs.readFileSync(file, "utf8");
+  const refs = file.endsWith(".html") ? [...content.matchAll(/(?:src|href)="([^"]+\.(?:js|css))"/g)].map((m) => m[1])
+    : file.endsWith(".js") ? [...content.matchAll(/(?:from|import)\s*["']([^"']+\.js)["']|import\(["']([^"']+\.js)["']\)/g)].map((m) => m[1] ?? m[2]) : [];
+  for (const ref of refs) follow(ref.startsWith("/") ? path.join(ROOT, "dist", ref) : path.resolve(path.dirname(file), ref));
+};
+follow(path.join(ROOT, "dist/index.html")); follow(path.join(ROOT, "dist/demo.html"));
+[...reached].some((file) => /recruiter_save_review|recruiter_assessment|Must-have not met — stopped|Disputed — review required/.test(fs.readFileSync(file, "utf8")))
+  ? fail("client entries load recruiter functionality") : pass("client entries do not load recruiter functionality");
 
 /* 2. Private content, from the private folder. */
 if (!fs.existsSync(PRIV)) { console.log("SKIP private-content checks: the private scoring folder is not on this computer"); process.exit(bad ? 1 : 0); }

@@ -1,5 +1,17 @@
 # Verification record
 
+## Recruiter workspace prepared locally · 30 October 2026
+
+Not committed, deployed or applied to the hosted database. The separate recruiter entry, owner-reviewed import preparation and M7 staff access/storage/publication migration are described in [recruiter workspace setup](docs/recruiter-workspace.md).
+
+- Typecheck and production build passed. Standard tests: 970 passed in 66 files (`npm test -- --reporter=dot --maxWorkers=2`). Worker count was limited after a concurrent full run hit an extraction-test timeout; no extraction behaviour was changed.
+- Full offline database suite: 161 passed in 16 files. After final M7 input-validation changes, all 9 M7 tests passed again. These use real migrations in PGlite with fictional data and simulated users. They cover client denial, assigned-client restrictions, revocation, stale revisions, immutable originals, correction evidence, screening quotes, approval gates and publication through existing client RLS. New reviews pause previously shared packages from that assessment.
+- Offline browser check (`npm run check:recruiter`) passed: staff sign-in/access denial, CV correction/save, screening persistence, blocked draft-rule sharing, unsaved navigation, desktop/mobile/dark layout, sign-out clearance and no outside requests. Screenshots were visually inspected; no separate approved recruiter mockup exists for pixel comparison.
+- The development-only fictional preview on port 5197 renders, saves an in-memory review and shows history with no external requests or page errors. It is excluded from production entries and is not staff authentication.
+- Private-content/isolation and browser/build secret checks passed. The npm dependency audit was not completed: automatic approval review rejected sending this private project's dependency metadata to the external registry. No dependencies were added or upgraded.
+
+Still pending: review/application of M7, staff provisioning/client assignments, explicit assessment imports, hosted CV intake/AI processing, hosted end-to-end checks and true concurrent database sessions. Scoring rules remain unapproved; sharing from those test rules is rejected. No hosted database writes or deployments were performed.
+
 What has been verified for the client portal, how, and when. All checks used fictional data on the development database or offline stand-ins. "Project owner" is the person responsible for the development database and deployment; hosted SQL and confirmed hosted API runs were performed by them after review. Dates are 2026, Indian Standard Time.
 
 Kinds of evidence, kept separate below:

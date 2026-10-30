@@ -40,6 +40,10 @@ All data in this repository and in the development database is fictional. No rea
 
 ## 4. Local setup
 
+### Prepared recruiter workspace (not applied or deployed)
+
+The separate `/recruiter.html` entry provides internal CV/scoring review, screening ratings, review history and explicit sharing of reviewed client summaries. Its new staff-access and storage migration is prepared locally and must be reviewed/applied separately. Hosted CV intake and AI drafting remain local; the current test scoring rules still block client sharing until approved. See [recruiter workspace setup and limits](docs/recruiter-workspace.md).
+
 Requirements: a current Node.js release (developed with Node 25) and npm.
 
 ```

@@ -18,6 +18,8 @@
     "compare:roles": "node scripts/compare-roles.mjs",
     "check:persistence": "node scripts/check-persistence.mjs",
     "check:auth": "node scripts/check-auth.mjs",
+    "check:recruiter": "node scripts/recruiter/check-ui.mjs",
+    "recruiter:preview": "vite --config vite.recruiter-preview.config.mjs",
     "db:verify": "node scripts/db/verify-project.mjs",
     "db:apply": "node scripts/db/apply.mjs",
     "db:rollback": "node scripts/db/rollback.mjs",

@@ -52,12 +52,36 @@ describe("production isolation", () => {
   it("a production build refuses the scoring-test mode like any unknown mode", () => {
     expect(fs.readFileSync(path.join(ROOT, "src/auth/config.ts"), "utf8")).not.toMatch(/scoring/);
   });
-  it("the production build has only the portal and public demo entries, with private-path protection", () => {
+  it("the production build has only client and fictional demo entries, with private-path protection", () => {
     const cfg = fs.readFileSync(path.join(ROOT, "vite.config.ts"), "utf8");
     expect(cfg).not.toMatch(/scoring/);
     expect(cfg).toContain('input: ["index.html", "demo.html"]');
     expect(cfg).toMatch(/plugins: \[privatePathsGuard\(\),/);
     expect(fs.existsSync(path.join(ROOT, "scoring.html"))).toBe(false);
+  });
+  it("neither client entry imports the unfinished recruiter workspace", () => {
+    const portal = graph(MAIN, (f, spec) => f === MAIN && spec === "./scoring/testMode");
+    const demo = graph(path.join(ROOT, "src/demo.tsx"));
+    expect([...portal, ...demo].filter((f) => f.startsWith("src/recruiter/"))).toEqual([]);
+  });
+  it("the fictional recruiter preview stays local, uses no environment files and refuses builds", () => {
+    const cfg = fs.readFileSync(path.join(ROOT, "vite.recruiter-preview.config.mjs"), "utf8");
+    expect(cfg).toContain('envDir: path.resolve("scripts/scoring/no-env")');
+    expect(cfg).toContain('host: "127.0.0.1"');
+    expect(cfg).toMatch(/apply: "build", buildStart\(\) \{ throw/);
+    expect(cfg).toContain("privatePathsGuard()");
+    const entry = fs.readFileSync(path.join(ROOT, "recruiter-preview.html"), "utf8");
+    expect(entry).toContain('/src/recruiter/demo.tsx');
+    const preview = fs.readFileSync(path.join(ROOT, "src/recruiter/demo.tsx"), "utf8");
+    expect(preview).toContain('if (!import.meta.env.DEV) throw');
+    expect(preview).toContain('useState(fictionalGateway)');
+  });
+  it("the recruiter entry reuses the calculator without importing local services, private fixtures or preview exports", () => {
+    const recruiter = graph(path.join(ROOT, "src/recruiter/main.tsx"));
+    expect(recruiter).toContain("src/scoring/calculator.ts");
+    expect(recruiter.some((f) => /src\/(preview|scoring\/(api|testMode|syntheticFixture|extraction|blinding))/.test(f))).toBe(false);
+    expect(recruiter.some((f) => /src\/recruiter\/import\.ts/.test(f))).toBe(false);
+    expect(recruiter.some((f) => /src\/recruiter\/(demo|fictional)\.tsx?$/.test(f))).toBe(false);
   });
 });
 
