@@ -1,4 +1,5 @@
 import {InfoIcon} from "../components/icons";
+import { CandidateActivity, type ActivityEntry, type ActivityNote } from "../candidates/CandidateActivity";
 import { CandidateSummary, placeConcerns } from "../candidates/CandidateSummary";
 import {readBoardAction} from "../candidates/boardActions";
 import {CandidateDetailFrame,RecruiterScreening} from "../candidates/CandidateDetailFrame";
@@ -7,7 +8,7 @@ import {RolesView,RoleDetailView,type RolePresentation} from "../roles/RoleViews
 import { HelpPage } from "../help/HelpPage";
 import { useCandidatesHref, useCandidateReturn } from "../lib/candidatesRoute";
 import { CandidatesView, type CandidateRow } from "../candidates/CandidatesView";
-import { useState, type FormEvent, type ReactNode } from "react";
+import { useEffect, useRef, useState, type FormEvent, type ReactNode } from "react";
 import type { Stage } from "../data/fixtures";
 import { fd, fdw, weeksBefore } from "../lib/dates";
 import { navFor } from "../lib/route";
@@ -135,6 +136,7 @@ function CandidateDetail({ ws, id, moves, memberId, today }: { ws: Workspace; id
   const candidatesHref=useCandidatesHref();
   const back=useCandidateReturn();
   const {tab,setTab,from}=useDetailLocation(), ext = useWorkspaceExtension();
+  const [feedbackRequest, setFeedbackRequest] = useState(0);
   const c = ws.subs.find((s) => s.id === id);
   if (!c) return <><nav className="crumb"><a href={back.href}>← {back.label}</a></nav><p>Candidate not found. <a href={candidatesHref}>Back to Candidates</a></p></>;
   const p = person(ws, c), r = roleFor(ws, c), others = ws.subs.filter((x) => x.personId === c.personId && x.id !== c.id);
@@ -151,11 +153,11 @@ function CandidateDetail({ ws, id, moves, memberId, today }: { ws: Workspace; id
           {t && <div className={`nextbox ${t.cls}`}><b>{t.long}</b>{t.sub && <span className="small">{t.sub}</span>}</div>}
           <dl className="statusdl"><dt>Recruiter screening</dt><dd>{sc?`Held ${fd(sc.callOn)} by ${sc.recruiterName}`:row.screening}</dd>{offer && <><dt>Offer status</dt><dd>{offer}</dd></>}{r.recruiterName && <><dt>Recruiter</dt><dd>{`${r.recruiterName}, Revenue Optics`}</dd></>}</dl>
           {extActions ?? <>
-            <ActionPanel key={c.id} sub={c} role={r} moves={moves} decisions={ws.notes !== null} feedbackRound={ws.steps ? feedbackTask(ws, c)?.id ?? null : undefined} />
+            <ActionPanel key={c.id} sub={c} role={r} moves={moves} decisions={ws.notes !== null} feedbackRound={ws.steps ? feedbackTask(ws, c)?.id ?? null : undefined} feedbackRequest={feedbackRequest} />
             <p className="mock"><InfoIcon/><span>{NOT_NOTIFIED}</span></p>
           </>}
         </div></aside>) : undefined}>
-            {tab === "notes" ? extHistory ?? <History ws={ws} sub={c} memberId={memberId} />
+            {tab === "notes" ? extHistory ?? <History ws={ws} sub={c} memberId={memberId} onFeedback={!ext && ws.notes !== null && canGiveFeedback(c, r) && !["saving", "uncertain"].includes(moves.state.status) ? () => { if (moves.state.status !== "idle") moves.dismiss(); setFeedbackRequest((n) => n + 1); } : undefined} />
               : tab === "summary" && extSummary ? <>{ws.content?.packages.has(c.id) && <Summary ws={ws} sub={c} />}{extSummary}</>
               : tab === "summary" && ws.content ? <Summary ws={ws} sub={c} />
               : tab === "interview" && extScreening ? extScreening
@@ -193,41 +195,30 @@ export function historyText(e: HistoryEntry, firstName: string) {
   return e.toStage === "Declined" ? `${e.actor} declined ${firstName}` : `${e.actor} moved ${firstName} to ${e.toStage}`;
 }
 
-export function History({ ws, sub, memberId }: { ws: Workspace; sub: DbSubmission; memberId: string }) {
+export function History({ ws, sub, memberId, onFeedback }: { ws: Workspace; sub: DbSubmission; memberId: string; onFeedback?: () => void }) {
   const first = person(ws, sub).name.split(/\s+/)[0], h = history(ws, sub, memberId);
-  return (
-    <>
-      <div className="sec-h"><h2>Your notes on this candidate</h2><span className="xs muted">Not shared with the candidate.</span></div>
-      <Notes ws={ws} sub={sub} memberId={memberId} />
-      <h2 style={{ margin: "22px 0 8px" }}>History</h2>
-      {h.entries.length
-        ? <ol className="hist">{h.entries.slice().reverse().map((e) => <li key={e.version}><span className="t">{fd(e.date)}</span><span>{historyText(e, first)}</span></li>)}</ol>
-        : <p className="muted small">No history is available for this candidate.</p>}
-      {h.missing > 0 && <p className="small muted" role="note">{`${h.missing} ${plural(h.missing, "change is", "changes are")} not shown: ${plural(h.missing, "its", "their")} history ${plural(h.missing, "entry is", "entries are")} not available.`}</p>}
-      {h.beyondCurrent && <p className="small muted" role="note">The history has changes newer than the stage shown. Reload the page to see the latest stage.</p>}
-      <p className="xs muted" style={{ marginTop: 10 }}>Newest first; dates are calendar days in UTC. &ldquo;You&rdquo; marks changes you made in the portal. &ldquo;Client team&rdquo; is someone else at your company, or a change recorded without who made it.</p>
-    </>
-  );
-}
-
-/** Decline notes and interview feedback, in 2h's note boxes; "You" only for the signed-in member's own notes. */
-function Notes({ ws, sub, memberId }: { ws: Workspace; sub: DbSubmission; memberId: string }) {
-  if (ws.notes === null) return <p className="muted small">Notes are not available on this database yet.</p>;
-  const mine = ws.notes.filter((n) => n.submissionId === sub.id).sort((a, b) => (a.createdAt < b.createdAt ? -1 : a.createdAt > b.createdAt ? 1 : 0));
-  if (!mine.length) return <p className="muted small">No notes yet. Notes you add with a decision or after an interview appear here.</p>;
-  const by = (n: (typeof mine)[number]) => <p className="xs muted" style={{ margin: "6px 0 0" }}>{`${n.authorMemberId === memberId && memberId !== "" ? "You" : "Client team"} · ${fd(n.createdAt.slice(0, 10))}`}</p>;
-  return (
-    <>
-      {mine.map((n) => (
-        <div key={n.id} className="box" style={{ marginBottom: 10 }}>
-          {n.kind === "decline"
-            ? <><b>Decline note</b> <span className="chip c-mute">{n.category ?? "No category"}</span></>
-            : <><b>Interview feedback</b>{n.about && <> <span className="xs muted">{`about ${n.about}`}</span></>}</>}
-          <p style={{ margin: "6px 0 0", whiteSpace: "pre-wrap" }}>{n.text}</p>{by(n)}
-        </div>
-      ))}
-    </>
-  );
+  const notes = (ws.notes ?? []).filter((n) => n.submissionId === sub.id), attached = new Set<string>();
+  const present = (n: (typeof notes)[number]): ActivityNote => ({ id: n.id, label: n.kind === "decline" ? "Decline note" : "Interview feedback", text: n.text,
+    date: n.createdAt.slice(0, 10), author: n.authorMemberId === memberId && memberId !== "" ? "You" : "Client team", about: n.about,
+    category: n.kind === "decline" ? n.category ?? "No category" : null });
+  const entries: ActivityEntry[] = h.entries.slice().reverse().map((e) => {
+    const event = ws.events.find((x) => x.submissionId === sub.id && x.version === e.version);
+    const linked = notes.filter((n) => n.eventId === event?.id && n.kind === event.kind && n.authorMemberId === event.actorMemberId);
+    linked.forEach((n) => attached.add(n.id));
+    return { id: `event-${e.version}`, date: e.date, title: historyText(e, first), notes: linked.map(present) };
+  });
+  // Preserve any loaded note whose event is unavailable; never attach it by matching its date.
+  const unlinked = notes.filter((n) => !attached.has(n.id)).sort((a, b) => b.createdAt.localeCompare(a.createdAt));
+  for (const n of unlinked) {
+    const note = present(n), entry = { id: `note-${n.id}`, date: note.date, title: note.label, notes: [note] };
+    const index = entries.findIndex((e) => e.date <= entry.date);
+    entries.splice(index === -1 ? entries.length : index, 0, entry);
+  }
+  return <CandidateActivity entries={entries} onFeedback={onFeedback} notesUnavailable={ws.notes === null}>
+    {h.missing > 0 && <p className="small muted" role="note">{`${h.missing} ${plural(h.missing, "change is", "changes are")} not shown: ${plural(h.missing, "its", "their")} history ${plural(h.missing, "entry is", "entries are")} not available.`}</p>}
+    {h.beyondCurrent && <p className="small muted" role="note">The history has changes newer than the stage shown. Reload the page to see the latest stage.</p>}
+    <p className="xs muted activity-help">Dates are calendar days in UTC. &ldquo;You&rdquo; marks changes you made in the portal. &ldquo;Client team&rdquo; is someone else at your company, or a change recorded without who made it.</p>
+  </CandidateActivity>;
 }
 
 const NOT_NOTIFIED = "Development: stage changes and decisions are saved in the portal database only. Your recruiter is not notified automatically, and Manatal is not updated: neither is connected. Who may act, and when, is provisional.";
@@ -240,11 +231,21 @@ const label = (r: { action?: string; toStage: string }) => (r.action === "declin
     Which actions are offered follows the PROVISIONAL development rules (moves.ts); the server decides. */
 /* `feedbackRound`: the interview round a feedback form completes (the same rule as the Waiting on you task, next.ts); null
    when feedback would be general; undefined without milestone 4. */
-function ActionPanel({ sub, role, moves, decisions, feedbackRound }: { sub: DbSubmission; role: DbRole; moves: MovesProps; decisions: boolean; feedbackRound?: string | null }) {
+function ActionPanel({ sub, role, moves, decisions, feedbackRound, feedbackRequest = 0 }: { sub: DbSubmission; role: DbRole; moves: MovesProps; decisions: boolean; feedbackRound?: string | null; feedbackRequest?: number }) {
   const candidatesHref=useCandidatesHref();
   const targets = moveTargets(sub, role);
   /* The version and stage the user is looking at when they open a form are the ones sent: a change in between is a conflict. */
   const [form, setForm] = useState<Form | null>(()=>{if(typeof location==='undefined')return null;const action=readBoardAction(location.hash,targets,decisions&&canDecline(sub,role));return action?{...action,version:sub.version,stage:sub.stage}:null;});
+  const handledFeedback = useRef(feedbackRequest);
+  useEffect(() => {
+    if (feedbackRequest === handledFeedback.current) return;
+    handledFeedback.current = feedbackRequest;
+    if (!decisions || !canGiveFeedback(sub, role)) return;
+    setForm((current) => current ?? { kind: "feedback", version: sub.version, stage: sub.stage, round: feedbackRound ?? null });
+  }, [feedbackRequest, decisions, sub, role, feedbackRound]);
+  useEffect(() => {
+    if (feedbackRequest > 0 && form?.kind === "feedback") document.getElementById("fNote")?.focus();
+  }, [feedbackRequest, form]);
   const m = moves.state, mine = m.status !== "idle" && m.account === moves.account, here = mine && ("request" in m ? m.request.submissionId : m.submissionId) === sub.id;
 
   if (here && m.status === "saving") return <div className="nextbox ro" role="status"><b>{`Saving the ${label(m.request)}…`}</b><span className="small">{m.attempt > 0 ? "No answer yet: asking the server again with the same request." : "Waiting for the server to confirm."}</span></div>;
