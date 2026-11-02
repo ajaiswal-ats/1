@@ -28,3 +28,23 @@
 .main:has(>.pg-detail){background:var(--x-bg)}
 .pg-detail .banner{border:0;border-radius:10px;padding:10px 14px;font-size:13.5px}.pg-detail .banner.info{background:var(--pale);color:var(--rb)}.pg-detail .doc{padding:26px 30px;max-width:780px;box-shadow:none}.pg-detail .doc h3{margin:16px 0 4px;font-size:13.5px;color:var(--x-ink-3);text-transform:none;letter-spacing:0}.pg-detail .withheld{font-size:12.5px;padding:1px 8px;border-radius:999px}.pg-detail .hist li{grid-template-columns:96px minmax(0,1fr);padding:9px 0;font-size:14px}.pg-detail .hist .t{font-size:13px}.pg-detail .box{padding:14px 16px;border-radius:12px}
 .pg-detail .mock{display:flex;gap:8px}.pg-detail .mock svg{width:18px;height:18px;flex:none;margin-top:1px}
+
+/* Keep requirement columns consistent across tiers and give evidence the most space. */
+.pg-detail .requirement-group .req .ev ul{margin:6px 0 0;padding-left:18px}
+.pg-detail .requirement-group .req .ev li{margin:2px 0}
+.pg-detail .requirement-group .req .src{margin-top:6px;line-height:1.45}
+@media(min-width:761px){
+  .pg-detail .requirement-group .req th:nth-child(1){width:32%}
+  .pg-detail .requirement-group .req th:nth-child(2){width:22%}
+  .pg-detail .requirement-group .req th:nth-child(3){width:46%}
+  .pg-detail .requirement-group .req th,.pg-detail .requirement-group .req td{padding:12px;line-height:1.5;vertical-align:top}
+  .pg-detail .requirement-group .req th:first-child,.pg-detail .requirement-group .req td:first-child{padding-left:0}
+  .pg-detail .requirement-group .req th:last-child,.pg-detail .requirement-group .req td:last-child{padding-right:0}
+  .pg-detail .requirement-group-head{align-items:center;margin-bottom:8px}
+}
+
+/* Opening summary: a separate heading and short, evenly spaced bullets. */
+.pg-detail .summary-opening h3{margin:0 0 8px;font-size:15px;line-height:1.4}
+.pg-detail .summary-opening ul{margin:0;padding-left:20px}
+.pg-detail .summary-opening li{margin:0;line-height:1.6}
+.pg-detail .summary-opening li+li{margin-top:6px}

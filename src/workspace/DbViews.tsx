@@ -1,5 +1,5 @@
 import {InfoIcon} from "../components/icons";
-import {RequirementGroups} from "../candidates/RequirementGroups";
+import { CandidateSummary, placeConcerns } from "../candidates/CandidateSummary";
 import {readBoardAction} from "../candidates/boardActions";
 import {CandidateDetailFrame,RecruiterScreening} from "../candidates/CandidateDetailFrame";
 import {useDetailLocation} from "../candidates/detailNavigation";
@@ -31,7 +31,6 @@ const ACTIONS_OFF = "Stage changes, decline and interview feedback are on each c
 const year = (d: string) => d.slice(0, 4);
 /* As in the demo's candidate page (2h). */
 const REQ_ST: Record<DbEvidenceStatus, [string, string]> = { supported: ["Supported", "c-ok"], partly_supported: ["Partly supported", "c-info"], not_evidenced: ["Not evidenced", "c-mute"], confirmed_not_met: ["Confirmed not met", "c-warn"] };
-const first = (name: string) => name.split(" ")[0];
 
 /** Stage changes for the signed-in account: its key (moves for another account are ignored), the state and the actions. */
 export interface MovesProps {
@@ -180,19 +179,12 @@ export function Screening({ ws, sub }: { ws: Workspace; sub: DbSubmission }) {
 export function Summary({ ws, sub }: { ws: Workspace; sub: DbSubmission }) {
   const pkg = ws.content?.packages.get(sub.id), set = ws.content?.sets.get(sub.roleId);
   if (!pkg || !set || set.id !== pkg.setId) return <div className="rempty">No summary is currently shared for this candidate.</div>;
-  const rows = set.requirements.map((q) => [q, pkg.evidence.get(q.id)!] as const);
-  return (
-    <>
-      <p className="why"><b>{`Why Revenue Optics shared ${first(person(ws, sub).name)}.`}</b>{` ${pkg.whyShared}`}</p>
-      <div className="two">
-        <div className="box"><h3>Strengths</h3>{pkg.strengths.length ? <ul>{pkg.strengths.map((x) => <li key={x}>{x}</li>)}</ul> : <p className="muted small">None recorded.</p>}</div>
-        <div className="box"><h3>Points to clarify</h3>{pkg.pointsToClarify.length ? <ul>{pkg.pointsToClarify.map((x) => <li key={x}>{x}</li>)}</ul> : <p className="muted small">None recorded.</p>}</div>
-      </div>
-      <div className="sec-h requirement-heading"><h2>Requirement check</h2><span className="xs muted">{`Requirements ${set.label}`}</span></div>
-      <RequirementGroups rows={rows.map(([q,e])=>({id:q.id,tier:q.tier==='must'?'must':'preferred',text:q.text,status:REQ_ST[e.status][0],statusClass:REQ_ST[e.status][1],evidence:e.evidence,source:e.source?`Source: ${e.source}`:undefined}))}/>
-
-    </>
-  );
+  const placed = placeConcerns(set.requirements.map((q) => {
+    const e = pkg.evidence.get(q.id)!;
+    return { id: q.id, tier: q.tier === "must" ? "must" as const : "preferred" as const, text: q.text, status: REQ_ST[e.status][0], statusClass: REQ_ST[e.status][1], evidence: e.evidence, source: e.source ? `Source: ${e.source}` : undefined };
+  }), pkg.pointsToClarify);
+  return <CandidateSummary roleTitle={roleFor(ws, sub).title} summary={pkg.whyShared} strengths={pkg.strengths}
+    requirementsVersion={set.label} requirements={placed.requirements} additionalInformation={placed.additionalInformation} />;
 }
 
 export function historyText(e: HistoryEntry, firstName: string) {

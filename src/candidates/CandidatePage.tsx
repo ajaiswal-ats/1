@@ -1,5 +1,6 @@
 import {InfoIcon} from "../components/icons";
-import {RequirementGroups} from "./RequirementGroups";
+import { CandidateSummary } from "./CandidateSummary";
+import { demoSummary } from "./demoSummary";
 import {readBoardAction} from "./boardActions";
 import { useCandidatesHref, useCandidateReturn } from "../lib/candidatesRoute";
 import { useEffect, useRef, useState, type FormEvent, type ReactNode } from "react";
@@ -56,19 +57,13 @@ export function CandidatePage({ id }: { id: string }) {
 }
 
 function Summary({ c, src }: { c: Submission; src: (s: string) => ReactNode }) {
-  const role = roleOf(useData(), c);
-  return (
-    <>
-      <p className="why"><b>{`Why Revenue Optics shared ${first(c.name)}.`}</b>{` ${c.why}`}</p>
-      <div className="two">
-        <div className="box"><h3>Strengths</h3>{c.strengths.length ? <ul>{c.strengths.map((x) => <li key={x}>{x}</li>)}</ul> : <p className="muted small">None recorded.</p>}</div>
-        <div className="box"><h3>Points to clarify</h3>{c.clarify.length ? <ul>{c.clarify.map((x) => <li key={x}>{x}</li>)}</ul> : <p className="muted small">None recorded.</p>}</div>
-      </div>
-      <div className="sec-h requirement-heading"><h2>Requirement check</h2><span className="xs muted">{`Requirements ${role.reqVer}`}</span></div>
-      <RequirementGroups rows={role.req.map((q,i)=>{const e=c.req[i]??(['none','Not mentioned.',''] as const);return {id:String(i),tier:q[1]==='must'?'must':'preferred',text:q[0],status:REQ_ST[e[0]][0],statusClass:REQ_ST[e[0]][1],evidence:e[1],source:e[2]?src(e[2]):undefined};})}/>
-
-    </>
-  );
+  const role = roleOf(useData(), c), copy = demoSummary(c);
+  return <CandidateSummary roleTitle={role.title} summary={copy.summary} summaryPoints={copy.summaryPoints} strengths={copy.strengths}
+    requirementsVersion={role.reqVer} additionalInformation={copy.additionalInformation} reportedResults={copy.reportedResults}
+    requirements={role.req.map((q, i) => {
+      const e = c.req[i] ?? (["none", "Not mentioned.", ""] as const);
+      return { id: String(i), tier: q[1] === "must" ? "must" : "preferred", text: q[0], status: REQ_ST[e[0]][0], statusClass: REQ_ST[e[0]][1], evidence: e[1], source: e[2] ? src(e[2]) : undefined, concerns: copy.concernsByRequirement[i] };
+    })} />;
 }
 
 function Interview({c}:{c:Submission}) {
