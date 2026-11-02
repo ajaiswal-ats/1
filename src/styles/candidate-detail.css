@@ -48,3 +48,18 @@
 .pg-detail .summary-opening ul{margin:0;padding-left:20px}
 .pg-detail .summary-opening li{margin:0;line-height:1.6}
 .pg-detail .summary-opening li+li{margin-top:6px}
+
+/* Client feedback and recorded activity stay together inside Notes and history. */
+.pg-detail .activity-head{display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap}
+.pg-detail .activity-audience{margin:6px 0 14px;font-size:12.5px;color:var(--x-ink-3)}
+.pg-detail .activity-heading{margin:22px 0 6px;align-items:center}
+.pg-detail .activity-list{list-style:none;margin:0;padding:0}
+.pg-detail .activity-item{display:grid;grid-template-columns:105px minmax(0,1fr);gap:18px;padding:16px 0;border-top:1px solid var(--x-line)}
+.pg-detail .activity-date{font-size:13px;color:var(--x-ink-3);font-variant-numeric:tabular-nums;line-height:1.6}
+.pg-detail .activity-title{margin:0;font-size:14.5px;font-weight:600;line-height:1.5;color:var(--x-ink)}
+.pg-detail .activity-note{margin-top:10px;padding:12px 14px;border:1px solid var(--x-line);border-radius:10px;background:var(--x-surface-2)}
+.pg-detail .activity-note-heading{display:flex;gap:8px;align-items:center;flex-wrap:wrap;font-size:13px}
+.pg-detail .activity-note p{margin:6px 0 0;overflow-wrap:anywhere}
+.pg-detail .activity-note-text{white-space:pre-wrap;font-size:14px;line-height:1.55}
+.pg-detail .activity-help{border-top:1px solid var(--x-line);padding-top:12px;margin:0;line-height:1.5}
+@media(max-width:760px){.pg-detail .activity-item{grid-template-columns:minmax(0,1fr);gap:5px;padding:14px 0}.pg-detail .activity-head .btn{min-height:38px}}

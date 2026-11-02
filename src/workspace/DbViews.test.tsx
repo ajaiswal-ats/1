@@ -131,8 +131,8 @@ describe("candidate history (read-only, from submission events)", () => {
     const h = history(wsWith([all[2], all[0], all[3], all[1]]), sub(), "m-me");
     expect(h.entries.map((e) => e.version)).toEqual([1, 2, 3, 4]);
     const html = renderToStaticMarkup(<History ws={wsWith([all[2], all[0], all[3], all[1]])} sub={sub()} memberId="m-me" />);
-    const lines = [...html.matchAll(/<li><span class="t">([^<]+)<\/span><span>([^<]+)<\/span><\/li>/g)].map((m) => `${m[1]} ${m[2]}`);
-    expect(lines).toEqual(["4 Oct Revenue Optics moved Jo to Offer", "3 Oct Client team moved Jo to Offer", "2 Oct You moved Jo to Interview", "1 Oct Revenue Optics shared Jo for this role"]);
+    const lines = [...html.matchAll(/<li class="activity-item"><time[^>]*>([^<]+)<\/time><div class="activity-content"><p class="activity-title">([^<]+)<\/p>/g)].map((m) => `${m[1]} ${m[2]}`);
+    expect(lines).toEqual(["4 Oct 2026 Revenue Optics moved Jo to Offer", "3 Oct 2026 Client team moved Jo to Offer", "2 Oct 2026 You moved Jo to Interview", "1 Oct 2026 Revenue Optics shared Jo for this role"]);
     expect(html).toContain("No notes yet.");
   });
   it("says what is missing rather than inventing it", () => {
@@ -152,10 +152,27 @@ describe("candidate history (read-only, from submission events)", () => {
       { id: "n2", submissionId: "s1", eventId: 5, kind: "decline" as const, about: null, text: "Not enough CRM depth.", category: null, authorMemberId: "m-me", createdAt: "2026-10-05T10:00:00Z" },
     ];
     const html = renderToStaticMarkup(<History ws={{ ...wsWith(all), notes }} sub={sub()} memberId="m-me" />);
-    expect(html).toContain('<b>Interview feedback</b> <span class="xs muted">about Panel on 9 Oct</span><p style="margin:6px 0 0;white-space:pre-wrap">Strong on process.</p><p class="xs muted" style="margin:6px 0 0">Client team · 3 Oct</p>');
-    expect(html).toContain('<b>Decline note</b> <span class="chip c-mute">No category</span><p style="margin:6px 0 0;white-space:pre-wrap">Not enough CRM depth.</p><p class="xs muted" style="margin:6px 0 0">You · 5 Oct</p>');
-    expect(html.indexOf("Interview feedback")).toBeLessThan(html.indexOf("Decline note"));     // oldest first, as 2h adds them
+    const articles = [...html.matchAll(/<article class="activity-note">([\s\S]*?)<\/article>/g)].map((m) => m[1]);
+    expect(articles).toHaveLength(2);
+    expect(articles[0]).toContain("Not enough CRM depth.");
+    expect(articles[0]).toContain("No category");
+    expect(articles[0]).toContain("You · 5 Oct 2026");
+    expect(articles[1]).toContain("Strong on process.");
+    expect(articles[1]).toContain("Panel on 9 Oct");
+    expect(articles[1]).toContain("Client team · 3 Oct 2026");
+    expect(html.indexOf("Not enough CRM depth.")).toBeLessThan(html.indexOf("Strong on process."));
     expect(renderToStaticMarkup(<History ws={{ ...wsWith(all), notes: null }} sub={sub()} memberId="m-me" />)).toContain("Notes are not available on this database yet.");
+  });
+  it("attaches a note only to its own event and does not repeat its text", () => {
+    const events = [all[0], ev(2, { id: 22, kind: "feedback", actorMemberId: "m-me" })];
+    const note = { id: "n-linked", submissionId: "s1", eventId: 22, kind: "feedback" as const, about: "First interview", text: "Evidence for this interview only.", category: null, authorMemberId: "m-me", createdAt: "2026-10-02T10:00:00Z" };
+    const other = { ...note, id: "n-other", submissionId: "s2", text: "Other role note" };
+    const html = renderToStaticMarkup(<History ws={{ ...wsWith(events), notes: [note, other] }} sub={sub({ version: 2 })} memberId="m-me" />);
+    const row = html.match(/<li class="activity-item">[\s\S]*?<\/li>/)?.[0];
+    expect(row).toContain("You shared interview feedback");
+    expect(row).toContain("Evidence for this interview only.");
+    expect(html.match(/Evidence for this interview only\./g)).toHaveLength(1);
+    expect(html).not.toContain("Other role note");
   });
   it("history wording for decisions", () => {
     expect(historyText({ version: 3, date: "2026-10-03", actor: "Client team", kind: "feedback", toStage: "Interview" }, "Jo")).toBe("Client team shared interview feedback");

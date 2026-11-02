@@ -1,4 +1,5 @@
 import {InfoIcon} from "../components/icons";
+import { CandidateActivity, type ActivityEntry } from "./CandidateActivity";
 import { CandidateSummary } from "./CandidateSummary";
 import { demoSummary } from "./demoSummary";
 import {readBoardAction} from "./boardActions";
@@ -51,7 +52,7 @@ export function CandidatePage({ id }: { id: string }) {
           <Actions c={c} form={form} saved={saved} onOpen={setForm} onDone={(a) => { setForm(null); setSaved(savedHeading(a)); }} />
           <p className="mock"><InfoIcon/><span>Mockup: actions are saved only in this browser. Nothing is sent to your recruiter.</span></p>
         </div></aside>}>
-      {tab === "summary" ? <Summary c={c} src={src} /> : tab === "interview" ? <Interview c={c} /> : tab === "resume" ? <Resume c={c} /> : <Notes c={c} />}
+      {tab === "summary" ? <Summary c={c} src={src} /> : tab === "interview" ? <Interview c={c} /> : tab === "resume" ? <Resume c={c} /> : <Notes c={c} onFeedback={!form && permitted(data, c).feedback ? () => { setSaved(null); setForm({ kind: "feedback" }); } : undefined} />}
     </CandidateDetailFrame>
   );
 }
@@ -87,19 +88,19 @@ function Resume({ c }: { c: Submission }) {
   );
 }
 
-function Notes({ c }: { c: Submission }) {
-  const data = useData(), mine = data.notes[c.id] || [], hist = data.hist[c.id] || [[c.shared, `Revenue Optics shared ${first(c.name)} for this role`]];
-  const by = (d: string) => <p className="xs muted" style={{ margin: "6px 0 0" }}>{`${CURRENT_USER.name} · ${fd(d)}`}</p>;
-  return (
-    <>
-      <div className="sec-h"><h2>Your notes on this candidate</h2><span className="xs muted">Not shared with the candidate.</span></div>
-      {c.declineNote && <div className="box" style={{ marginBottom: 10 }}><b>Decline note</b> <span className="chip c-mute">{c.declineNote.cat}</span><p style={{ margin: "6px 0 0" }}>{c.declineNote.text}</p>{by(c.declineNote.date)}</div>}
-      {mine.map((n, i) => <div key={i} className="box" style={{ marginBottom: 10 }}><b>{n.kind}</b>{n.about && <> <span className="xs muted">{`about ${n.about}`}</span></>}<p style={{ margin: "6px 0 0", whiteSpace: "pre-wrap" }}>{n.text}</p>{by(n.d)}</div>)}
-      {!c.declineNote && !mine.length && <p className="muted small">No notes yet. Notes you add with a decision or after an interview appear here.</p>}
-      <h2 style={{ margin: "22px 0 8px" }}>History</h2>
-      <ol className="hist">{hist.slice().reverse().map((x, i) => <li key={i}><span className="t">{fd(x[0])}</span><span>{x[1]}</span></li>)}</ol>
-    </>
-  );
+function Notes({ c, onFeedback }: { c: Submission; onFeedback?: () => void }) {
+  const data = useData(), notes = data.notes[c.id] || [], hist = data.hist[c.id] || [[c.shared, `Revenue Optics shared ${first(c.name)} for this role`]];
+  // Legacy demo notes have no event ids. Keep them separate instead of guessing links from dates.
+  const entries: ActivityEntry[] = hist.map(([date, title], i) => ({ id: `event-${i}`, date, title }));
+  notes.forEach((n, i) => entries.push({ id: `note-${i}`, date: n.d, title: n.kind,
+    notes: [{ id: `note-${i}`, label: n.kind, text: n.text, author: CURRENT_USER.name, date: n.d, about: n.about }] }));
+  if (c.declineNote) {
+    const n = c.declineNote;
+    entries.push({ id: "decline-note", date: n.date, title: "Decline note",
+      notes: [{ id: "decline-note", label: "Decline note", text: n.text, category: n.cat, author: CURRENT_USER.name, date: n.date }] });
+  }
+  return <CandidateActivity entries={entries.reverse().sort((a, b) => b.date.localeCompare(a.date))} onFeedback={onFeedback}
+    audience="Demo notes are saved only in this browser. Not shared with the candidate." />;
 }
 
 /* The Next step panel's actions (2h actions() and formHtml()). */
